@@ -102,12 +102,13 @@ async function main() {
   ];
 
   try {
-    console.log('Seeding routes...');
-    for (const r of sampleRoutes) {
-      const ref = db.collection('routes').doc(String(r.id));
-      await ref.set(r);
-      console.log('  wrote route', r.id);
-    }
+    console.log('Skipping routes seeding - routes will be added manually...');
+    // Routes seeding disabled - add routes manually via admin interface for accurate coordinates
+    // for (const r of sampleRoutes) {
+    //   const ref = db.collection('routes').doc(String(r.id));
+    //   await ref.set(r);
+    //   console.log('  wrote route', r.id);
+    // }
 
     console.log('Seeding landmarks...');
     for (const lm of sampleLandmarks) {
