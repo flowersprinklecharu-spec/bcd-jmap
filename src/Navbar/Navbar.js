@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAdminKeyboardShortcut } from '../hooks/useAdminKeyboardShortcut';
+import { logoutUser } from '../firebase';
 
 // SVG Icons
 const MapPinIcon = () => (
@@ -34,12 +35,19 @@ const Navbar = ({ isAdmin, onAdminToggle, onNavigate, currentPage }) => {
     setMobileMenuOpen(!mobileMenuOpen);
   };
 
-  const handleAdminClick = () => {
+  const handleAdminClick = async () => {
     if (isAdmin) {
       // If already admin, show logout confirmation
       if (window.confirm('Are you sure you want to logout?')) {
-        if (onAdminToggle) {
-          onAdminToggle();
+        try {
+          await logoutUser();
+          // The auth state change will be handled by the App component
+        } catch (error) {
+          console.error('Logout failed:', error);
+          // Fallback: use the toggle function
+          if (onAdminToggle) {
+            onAdminToggle();
+          }
         }
       }
     } else {

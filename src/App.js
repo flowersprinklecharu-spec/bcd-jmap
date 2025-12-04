@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './firebase';
 import JeepneyMap from './Home/home';
 import RoutesPage from './Routes/Routes';
 import RouteEditor from './RouteEditor/RouteEditor';
@@ -18,14 +20,50 @@ import './About/about.css';
 function App() {
   const [currentPage, setCurrentPage] = useState('home');
   const [pageParams, setPageParams] = useState({});
-  const [isAdmin, setIsAdmin] = useState(false); // Shared admin state
+  const [isAdmin, setIsAdmin] = useState(() => {
+    // Initialize from localStorage
+    return localStorage.getItem('isAdmin') === 'true';
+  });
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  // Listen to Firebase Auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // User is signed in
+        setIsAdmin(true);
+        localStorage.setItem('isAdmin', 'true');
+      } else {
+        // User is signed out
+        setIsAdmin(false);
+        localStorage.removeItem('isAdmin');
+      }
+      setIsAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   const handleAdminToggle = () => {
-    setIsAdmin(!isAdmin);
+    const newAdminState = !isAdmin;
+    setIsAdmin(newAdminState);
+    
+    if (newAdminState) {
+      localStorage.setItem('isAdmin', 'true');
+    } else {
+      localStorage.removeItem('isAdmin');
+      // Also sign out from Firebase if toggling off
+      if (auth.currentUser) {
+        import('./firebase').then(({ logoutUser }) => {
+          logoutUser().catch(console.error);
+        });
+      }
+    }
   };
 
   const handleLoginSuccess = () => {
     setIsAdmin(true);
+    localStorage.setItem('isAdmin', 'true');
     setCurrentPage('home');
   };
 
@@ -35,6 +73,22 @@ function App() {
   };
 
   const renderPage = () => {
+    // Show loading while checking auth state
+    if (isAuthLoading) {
+      return (
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100vh',
+          fontSize: '18px',
+          color: '#666'
+        }}>
+          Loading...
+        </div>
+      );
+    }
+
     // Pass isAdmin and handleAdminToggle to all pages
     const sharedProps = {
       onNavigate: handleNavigate,
