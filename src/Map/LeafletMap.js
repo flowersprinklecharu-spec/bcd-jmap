@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapContainer, TileLayer, Polyline, Marker, Popup, LayersControl, ZoomControl } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, LayersControl, ZoomControl } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
