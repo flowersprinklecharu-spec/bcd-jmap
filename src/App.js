@@ -21,49 +21,86 @@ function App() {
   const [currentPage, setCurrentPage] = useState('home');
   const [pageParams, setPageParams] = useState({});
   const [isAdmin, setIsAdmin] = useState(() => {
-    // Initialize from localStorage
+    // Initialize from localStorage, but auth state will override this
     return localStorage.getItem('isAdmin') === 'true';
   });
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [authChecked, setAuthChecked] = useState(false);
 
   // Listen to Firebase Auth state changes
   useEffect(() => {
+    let mounted = true;
+    
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (!mounted) return;
+      
+      console.log('Auth state changed:', user ? 'signed in' : 'signed out');
+      
       if (user) {
         // User is signed in
+        console.log('User authenticated:', user.email);
         setIsAdmin(true);
         localStorage.setItem('isAdmin', 'true');
+        localStorage.setItem('adminUser', user.email);
       } else {
         // User is signed out
-        setIsAdmin(false);
-        localStorage.removeItem('isAdmin');
+        console.log('User not authenticated');
+        // Only set to false if we've actually checked auth state
+        if (authChecked) {
+          setIsAdmin(false);
+          localStorage.removeItem('isAdmin');
+          localStorage.removeItem('adminUser');
+        }
       }
+      
+      setAuthChecked(true);
       setIsAuthLoading(false);
     });
 
-    return () => unsubscribe();
-  }, []);
-
-  const handleAdminToggle = () => {
-    const newAdminState = !isAdmin;
-    setIsAdmin(newAdminState);
-    
-    if (newAdminState) {
-      localStorage.setItem('isAdmin', 'true');
-    } else {
-      localStorage.removeItem('isAdmin');
-      // Also sign out from Firebase if toggling off
-      if (auth.currentUser) {
-        import('./firebase').then(({ logoutUser }) => {
-          logoutUser().catch(console.error);
-        });
+    // Set a timeout to stop loading if Firebase doesn't respond
+    const timeout = setTimeout(() => {
+      if (mounted) {
+        console.log('Auth check timeout, using localStorage state');
+        setIsAuthLoading(false);
+        setAuthChecked(true);
       }
+    }, 3000);
+
+    return () => {
+      mounted = false;
+      clearTimeout(timeout);
+      unsubscribe();
+    };
+  }, [authChecked]);
+
+  const handleAdminToggle = async () => {
+    if (isAdmin) {
+      // Logging out
+      try {
+        const { logoutUser } = await import('./firebase');
+        await logoutUser();
+        console.log('Admin logged out successfully');
+        // State will be updated by onAuthStateChanged
+      } catch (error) {
+        console.error('Logout error:', error);
+        // Fallback: manually update state
+        setIsAdmin(false);
+        localStorage.removeItem('isAdmin');
+        localStorage.removeItem('adminUser');
+      }
+    } else {
+      // Redirect to login
+      setCurrentPage('admin');
     }
   };
 
-  const handleLoginSuccess = () => {
+  const handleLoginSuccess = (user) => {
+    console.log('Login success callback:', user?.email);
     setIsAdmin(true);
     localStorage.setItem('isAdmin', 'true');
+    if (user?.email) {
+      localStorage.setItem('adminUser', user.email);
+    }
     setCurrentPage('home');
   };
 

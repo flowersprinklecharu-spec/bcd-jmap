@@ -1,7 +1,7 @@
 // Firebase initialization and simple helpers for Firestore
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, collection, addDoc, deleteDoc } from 'firebase/firestore';
-import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
 // Firebase config is best provided via environment variables in React apps.
 // See the .env file in the project root.
@@ -25,6 +25,12 @@ try {
   app = initializeApp(firebaseConfig);
   db = getFirestore(app);
   auth = getAuth(app);
+  
+  // Set auth persistence to local storage
+  setPersistence(auth, browserLocalPersistence).catch((error) => {
+    console.warn('Failed to set auth persistence:', error);
+  });
+  
   console.log('Firebase initialized successfully');
 } catch (err) {
   // In development it's fine to console the error — the app should still run without Firebase.

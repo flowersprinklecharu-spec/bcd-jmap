@@ -22,9 +22,9 @@ const AdminLoginPage = ({ onLoginSuccess, onNavigate }) => {
 
     try {
       // Use Firebase authentication
-      await loginWithEmail(email, password);
-      console.log('Admin login successful');
-      onLoginSuccess();
+      const user = await loginWithEmail(email, password);
+      console.log('Admin login successful:', user.email);
+      onLoginSuccess(user);
     } catch (err) {
       console.error('Login error:', err);
       
