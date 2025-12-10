@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './firebase';
 import JeepneyMap from './Home/home';
 import RoutesPage from './Routes/Routes';
 import RouteEditor from './RouteEditor/RouteEditor';
@@ -26,87 +24,42 @@ function App() {
   });
   const [isAuthLoading, setIsAuthLoading] = useState(false); // Start as false, only show loading when explicitly checking auth
 
-  // Simplified auth check - trust localStorage more, Firebase less aggressive
+  // Admin state controlled ONLY by localStorage - Firebase Auth disabled for admin state
   useEffect(() => {
-    let mounted = true;
-    
-    // If localStorage says admin, try to verify with Firebase but don't immediately clear on failure
+    // Just trust localStorage completely - no Firebase auth state management
     const storedAdmin = localStorage.getItem('isAdmin') === 'true';
+    const storedUser = localStorage.getItem('adminUser');
     
-    if (storedAdmin && auth) {
-      setIsAuthLoading(true);
-      
-      // Check current auth state
-      const checkAuth = async () => {
-        try {
-          // If there's a current user, we're good
-          if (auth.currentUser) {
-            console.log('Admin verified with current user:', auth.currentUser.email);
-            if (mounted) {
-              setIsAdmin(true);
-              localStorage.setItem('adminUser', auth.currentUser.email);
-              setIsAuthLoading(false);
-            }
-            return;
-          }
-
-          // Set up auth state listener
-          const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (!mounted) return;
-            
-            if (user) {
-              console.log('Admin verified with auth state:', user.email);
-              setIsAdmin(true);
-              localStorage.setItem('isAdmin', 'true');
-              localStorage.setItem('adminUser', user.email);
-            }
-            // Don't automatically logout on no user - could be temporary
-            
-            setIsAuthLoading(false);
-            unsubscribe();
-          });
-
-          // Timeout to stop loading if Firebase doesn't respond
-          setTimeout(() => {
-            if (mounted) {
-              console.log('Auth check timeout - keeping localStorage state');
-              setIsAuthLoading(false);
-            }
-          }, 2000);
-
-        } catch (error) {
-          console.error('Auth check error:', error);
-          if (mounted) {
-            setIsAuthLoading(false);
-            // Keep existing admin state from localStorage
-          }
-        }
-      };
-
-      checkAuth();
+    console.log('App loaded - Admin state from localStorage:', storedAdmin);
+    if (storedAdmin && storedUser) {
+      console.log('Restoring admin session for:', storedUser);
     }
-
-    return () => {
-      mounted = false;
-    };
+    
+    // Admin state is already set from localStorage in useState initializer
+    // No need to change it here unless we want to do additional verification
+    setIsAuthLoading(false);
   }, []);
 
   const handleAdminToggle = async () => {
     if (isAdmin) {
-      // Explicit logout with confirmation
+      // Explicit logout with confirmation - ONLY way to logout
       if (window.confirm('Are you sure you want to logout?')) {
-        try {
-          const { logoutUser } = await import('./firebase');
-          await logoutUser();
-        } catch (error) {
-          console.error('Firebase logout failed:', error);
-        }
+        console.log('Admin manually logging out');
         
-        // Always clear local state
+        // Clear local state first
         setIsAdmin(false);
         localStorage.removeItem('isAdmin');
         localStorage.removeItem('adminUser');
         setCurrentPage('home');
+        
+        // Try to logout from Firebase but don't wait for it or let it affect local state
+        try {
+          const { logoutUser } = await import('./firebase');
+          await logoutUser();
+          console.log('Firebase logout completed');
+        } catch (error) {
+          console.error('Firebase logout failed (but local logout succeeded):', error);
+        }
       }
     } else {
       // Navigate to login page
@@ -115,12 +68,16 @@ function App() {
   };
 
   const handleLoginSuccess = (user) => {
-    console.log('Login success callback:', user?.email);
+    console.log('Login success - setting admin state:', user?.email);
+    
+    // Set admin state in both React and localStorage
     setIsAdmin(true);
     localStorage.setItem('isAdmin', 'true');
     if (user?.email) {
       localStorage.setItem('adminUser', user.email);
     }
+    
+    console.log('Admin state saved to localStorage');
     setCurrentPage('home');
   };
 
