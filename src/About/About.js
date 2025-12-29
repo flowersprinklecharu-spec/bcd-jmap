@@ -1,9 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 // Navbar moved to App.js (top-level)
 import { saveAboutContent, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { AdminContext } from '../contexts/AdminContext';
+import './about.css';
+
+// Edit Icon
+const EditIcon = () => (
+  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
+    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"></path>
+  </svg>
+);
 
 const About = ({ onNavigate, onRequestLogin }) => {
+  const { isAdmin } = useContext(AdminContext);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [aboutContent, setAboutContent] = useState({
@@ -167,6 +177,23 @@ const About = ({ onNavigate, onRequestLogin }) => {
               <div className="form-actions">
                 <button
                   type="button"
+                  className="cancel-btn"
+                  onClick={() => setIsEditing(false)}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: '#e0e0e0',
+                    color: '#333',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '600'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
                   className="save-btn"
                   onClick={handleSaveAbout}
                   disabled={isSaving}
@@ -179,7 +206,17 @@ const About = ({ onNavigate, onRequestLogin }) => {
           ) : (
             // View Mode
             <>
-              <h1 className="about-title">{aboutContent.title}</h1>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', marginBottom: '30px' }}>
+                <h1 className="about-title">{aboutContent.title}</h1>
+                {isAdmin && (
+                  <button
+                    onClick={() => setIsEditing(true)}
+                    className="admin-edit-btn"
+                  >
+                    <EditIcon />
+                  </button>
+                )}
+              </div>
 
               <div className="about-section">
                 <p className="about-description">
