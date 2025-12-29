@@ -1,6 +1,4 @@
 import React, { useState } from 'react';
-import { useAdminKeyboardShortcut } from '../hooks/useAdminKeyboardShortcut';
-import { logoutUser } from '../firebase';
 
 // SVG Icons
 const MapPinIcon = () => (
@@ -29,7 +27,6 @@ const AdminIcon = () => (
 
 const Navbar = ({ isAdmin, onAdminToggle, onNavigate, currentPage }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const showAdminButton = useAdminKeyboardShortcut();
 
   const toggleMobileMenu = () => {
     setMobileMenuOpen(!mobileMenuOpen);
@@ -37,18 +34,9 @@ const Navbar = ({ isAdmin, onAdminToggle, onNavigate, currentPage }) => {
 
   const handleAdminClick = async () => {
     if (isAdmin) {
-      // If already admin, show logout confirmation
-      if (window.confirm('Are you sure you want to logout?')) {
-        try {
-          await logoutUser();
-          // The auth state change will be handled by the App component
-        } catch (error) {
-          console.error('Logout failed:', error);
-          // Fallback: use the toggle function
-          if (onAdminToggle) {
-            onAdminToggle();
-          }
-        }
+      // Use the App component's logout handler which properly manages localStorage
+      if (onAdminToggle) {
+        onAdminToggle();
       }
     } else {
       // Navigate to admin login page
@@ -117,12 +105,12 @@ const Navbar = ({ isAdmin, onAdminToggle, onNavigate, currentPage }) => {
             </a>
           </nav>
 
-          {/* Admin Icon Button - Only visible if showAdminButton is true or user is admin */}
-          {(showAdminButton || isAdmin) && (
+          {/* Admin Icon Button - Only visible when logged in */}
+          {isAdmin && (
             <button 
               className={`navbar-admin-btn ${isAdmin ? 'active' : ''}`}
               onClick={handleAdminClick}
-              title={isAdmin ? 'Logout (Admin)' : 'Admin Login'}
+              title="Logout (Admin)"
             >
               <AdminIcon />
               {isAdmin && <span className="admin-label">Logout</span>}

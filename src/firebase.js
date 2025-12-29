@@ -1,6 +1,6 @@
 // Firebase initialization and simple helpers for Firestore
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, collection, addDoc, deleteDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, collection, addDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { getAuth, signInWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
 // Firebase config is best provided via environment variables in React apps.
@@ -82,6 +82,29 @@ export async function logoutUser() {
   } catch (err) {
     console.error('Logout error:', err);
     throw err;
+  }
+}
+
+export async function isAdminByEmail(email) {
+  if (!db || !email) {
+    console.log('❌ Cannot check admin status: db or email missing');
+    return false;
+  }
+  try {
+    // Query the admins collection using the email as document ID
+    const adminRef = doc(db, 'admins', email);
+    const adminSnap = await getDoc(adminRef);
+    
+    if (adminSnap.exists()) {
+      console.log('✅ User is authorized admin:', email);
+      return true;
+    } else {
+      console.log('❌ User is not an authorized admin:', email);
+      return false;
+    }
+  } catch (err) {
+    console.error('Error checking admin status:', err);
+    return false;
   }
 }
 

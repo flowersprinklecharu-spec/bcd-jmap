@@ -36,6 +36,7 @@
   font-weight: bold;
   color: #1f2937;
   margin-bottom: 0.5rem;
+  text-align: center;
 }
 
 .routes-subtitle {
@@ -76,6 +77,28 @@
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
 }
 
+/* Route Map Preview */
+.route-map-preview {
+  background: white;
+  border-radius: 1rem;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+  overflow: hidden;
+}
+
+.map-preview-header {
+  padding: 1rem 1.5rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.route-map-preview .leaflet-map {
+  height: 450px !important;
+}
+
 /* Routes Grid */
 .routes-grid {
   display: grid;
@@ -102,12 +125,19 @@
   border-radius: 1rem;
   padding: 1.5rem;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.2s, box-shadow 0.2s, border 0.2s;
+  border: 3px solid transparent;
 }
 
 .route-card:hover {
   transform: translateY(-4px);
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.15);
+}
+
+.route-card-active {
+  border: 3px solid #667eea;
+  box-shadow: 0 10px 20px -3px rgba(102, 126, 234, 0.3);
+  transform: translateY(-2px);
 }
 
 .route-header {

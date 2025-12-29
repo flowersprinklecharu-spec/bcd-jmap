@@ -12,7 +12,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
 });
 
-const RouteMapEditor = ({ route, onSave, onCancel }) => {
+const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute }) => {
   const [newStops, setNewStops] = useState([]); // Only track new stops being added
   const [newStopName, setNewStopName] = useState('');
   const [selectedStop, setSelectedStop] = useState(null);
@@ -158,21 +158,23 @@ const RouteMapEditor = ({ route, onSave, onCancel }) => {
           </div>
 
           <div className="stops-list-section">
-            <div style={{ marginBottom: '15px' }}>
-              <h4>Existing Stops ({(route.majorStops || []).length})</h4>
-              {(route.majorStops || []).length > 0 && (
-                <div className="existing-stops-list">
-                  {route.majorStops.map((stopName, index) => (
-                    <div key={`existing-${index}`} className="existing-stop-item">
-                      <div className="stop-item-number" style={{ backgroundColor: '#666' }}>
-                        {index + 1}
+            {!isNewRoute && (
+              <div style={{ marginBottom: '15px' }}>
+                <h4>Existing Stops ({(route.majorStops || []).length})</h4>
+                {(route.majorStops || []).length > 0 && (
+                  <div className="existing-stops-list">
+                    {route.majorStops.map((stopName, index) => (
+                      <div key={`existing-${index}`} className="existing-stop-item">
+                        <div className="stop-item-number" style={{ backgroundColor: '#666' }}>
+                          {index + 1}
+                        </div>
+                        <div className="stop-item-name">{stopName}</div>
                       </div>
-                      <div className="stop-item-name">{stopName}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             
             <h4>New Stops ({newStops.length})</h4>
             {newStops.length === 0 ? (

@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import Navbar from '../Navbar/Navbar';
+import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
+// Navbar moved to App.js (top-level)
 import RouteMapEditor from './RouteMapEditor';
+import LeafletMap from '../Map/LeafletMap';
 import { saveRoute, deleteRoute, normalizeDocData } from '../firebase';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../firebase';
+import { AdminContext } from '../contexts/AdminContext';
+import { getNextRouteNumber, getRouteColor } from '../utils/routeUtils';
 import './routes.css';
 
 // SVG Icons - Memoized components
@@ -55,15 +58,18 @@ const sortRoutesByNumber = (routes) => {
 // Initial routes data - Empty by default (routes will be added manually via admin interface)
 const initialRoutesData = [];
 
-const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestLogin }) => {
+const Routes = ({ onNavigate, onRequestLogin }) => {
+  const { isAdmin } = useContext(AdminContext);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRoute, setSelectedRoute] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(initialIsAdmin || false);
   const [routes, setRoutes] = useState(initialRoutesData);
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('view');
   const [editingRoute, setEditingRoute] = useState(null);
   const [showMapEditor, setShowMapEditor] = useState(false);
+  const [highlightedRoute, setHighlightedRoute] = useState(null); // For map highlighting
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Track unsaved changes
+  const [landmarks, setLandmarks] = useState([]); // For map display
 
   // Memoized filtered and sorted routes
   const filteredRoutes = useMemo(() => {
@@ -82,28 +88,50 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
     setModalMode(mode);
     if (mode === 'edit') {
       setEditingRoute({ ...route });
+      setShowMapEditor(false); // Start with form view for edit mode
     } else if (mode === 'add') {
+      // Auto-assign next route number and color
+      const nextNumber = getNextRouteNumber(routes);
+      const autoColor = getRouteColor(nextNumber);
+      
+      console.log('📝 Auto-assigning route - Next number:', nextNumber, 'Color:', autoColor, 'Existing routes:', routes);
+      
       setEditingRoute({
         id: Date.now(),
-        number: '',
+        number: nextNumber.toString(),
         name: '',
         description: '',
         fare: '₱11.00 - ₱15.00',
-        color: '#FF5722',
+        color: autoColor,
         operatingHours: '5:00 AM - 9:00 PM',
         frequency: 'Every 5-10 mins',
-        majorStops: ['']
+        majorStops: [],
+        coordinates: [] // Array of [lat, lng] points for route path
       });
+      setShowMapEditor(true); // Immediately open map editor for add mode
     }
     setShowModal(true);
-  }, []);
+  }, [routes]);
 
   const closeModal = useCallback(() => {
     setShowModal(false);
     setSelectedRoute(null);
     setEditingRoute(null);
     setModalMode('view');
+    setHasUnsavedChanges(false); // Clear unsaved changes flag
+    setShowMapEditor(false);
   }, []);
+
+  // Safe close that warns about unsaved changes
+  const safeCloseModal = useCallback(() => {
+    if (hasUnsavedChanges && editingRoute && (modalMode === 'add' || modalMode === 'edit')) {
+      if (window.confirm('You have unsaved changes. Are you sure you want to close without saving?')) {
+        closeModal();
+      }
+    } else {
+      closeModal();
+    }
+  }, [hasUnsavedChanges, editingRoute, modalMode, closeModal]);
 
   const handleAddRoute = useCallback(() => {
     openModal(null, 'add');
@@ -134,6 +162,9 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
         await saveRoute(editingRoute);
         alert('✅ Route updated successfully!');
       }
+      // Clear draft and unsaved changes on successful save
+      localStorage.removeItem('routeDraft');
+      setHasUnsavedChanges(false);
       closeModal();
     } catch (err) {
       console.error(err);
@@ -143,20 +174,66 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
 
   useEffect(() => {
     try {
-      const col = collection(db, 'routes');
-      const q = query(col);
-      const unsub = onSnapshot(q, (snapshot) => {
+      const routesCol = collection(db, 'routes');
+      const routesQuery = query(routesCol);
+      const unsubRoutes = onSnapshot(routesQuery, (snapshot) => {
         const data = snapshot.docs.map(doc => normalizeDocData(doc));
         setRoutes(sortRoutesByNumber(data));
       }, (err) => {
         console.error('Routes listener error', err);
       });
 
-      return () => unsub && unsub();
+      const landmarksCol = collection(db, 'landmarks');
+      const landmarksQuery = query(landmarksCol);
+      const unsubLandmarks = onSnapshot(landmarksQuery, (snapshot) => {
+        const lm = snapshot.docs.map(doc => {
+          const normalized = normalizeDocData(doc);
+          // Ensure valid coordinates
+          if (!normalized.coordinates || !Array.isArray(normalized.coordinates) || normalized.coordinates.length !== 2) {
+            normalized.coordinates = null;
+          }
+          return { id: doc.id, ...normalized };
+        });
+        setLandmarks(lm.filter(l => l.coordinates !== null));
+      }, (err) => {
+        console.error('Landmarks listener error', err);
+      });
+
+      return () => {
+        unsubRoutes && unsubRoutes();
+        unsubLandmarks && unsubLandmarks();
+      };
     } catch (err) {
       console.warn('Firestore not available for routes', err);
     }
   }, []);
+
+  // Auto-save draft to localStorage whenever editingRoute changes
+  useEffect(() => {
+    if (editingRoute && (modalMode === 'add' || modalMode === 'edit')) {
+      setHasUnsavedChanges(true);
+      // Save to localStorage with a debounce (save after 1 second of no changes)
+      const timer = setTimeout(() => {
+        localStorage.setItem('routeDraft', JSON.stringify(editingRoute));
+        console.log('💾 Route draft auto-saved');
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [editingRoute, modalMode]);
+
+  // Warn before closing/refreshing if there are unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedChanges && editingRoute && (modalMode === 'add' || modalMode === 'edit')) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges, editingRoute, modalMode]);
 
   const handleInputChange = useCallback((field, value) => {
     setEditingRoute(prev => ({ ...prev, [field]: value }));
@@ -204,14 +281,7 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
 
   return (
     <div className="routes-page">
-      <Navbar 
-        isAdmin={isAdmin} 
-        onAdminToggle={onAdminToggle || (() => setIsAdmin(!isAdmin))}
-        onNavigate={onNavigate}
-        onRequestLogin={onRequestLogin}
-        currentPage="routes"
-      />
-
+      {/* Navbar is rendered by App.js */}
       <div className="routes-container">
         <div className="routes-hero">
           <div className="routes-header-row">
@@ -239,9 +309,57 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
           </div>
         </div>
 
+        {/* Map Display Section */}
+        {highlightedRoute && highlightedRoute.coordinates && highlightedRoute.coordinates.length > 0 && (
+          <div className="route-map-preview">
+            <div className="map-preview-header">
+              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span 
+                  style={{ 
+                    backgroundColor: highlightedRoute.color, 
+                    color: '#fff', 
+                    padding: '4px 12px', 
+                    borderRadius: '4px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  Route {highlightedRoute.number}
+                </span>
+                {highlightedRoute.name}
+              </h3>
+              <button 
+                onClick={() => setHighlightedRoute(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  padding: '0 8px',
+                  color: '#666'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            <LeafletMap
+              routes={routes}
+              selectedRoute={highlightedRoute}
+              landmarks={landmarks}
+              highlightedStops={[]}
+              destination=""
+              suggestedRoutes={[]}
+            />
+          </div>
+        )}
+
         <div className="routes-grid">
           {filteredRoutes.map((route) => (
-            <div key={route.id} className="route-card">
+            <div 
+              key={route.id} 
+              className={`route-card ${highlightedRoute?.id === route.id ? 'route-card-active' : ''}`}
+              onClick={() => setHighlightedRoute(route)}
+              style={{ cursor: 'pointer' }}
+            >
               <div className="route-header">
                 <div 
                   className="route-number"
@@ -295,9 +413,9 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
 
       {/* Modal */}
       {showModal && (
-        <div className={`modal-overlay ${showMapEditor ? 'map-editor-active' : ''}`} onClick={closeModal}>
+        <div className={`modal-overlay ${showMapEditor ? 'map-editor-active' : ''}`} onClick={safeCloseModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={closeModal}>
+            <button className="modal-close" onClick={safeCloseModal}>
               <CloseIcon />
             </button>
 
@@ -359,11 +477,49 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
 
             {(modalMode === 'add' || modalMode === 'edit') && editingRoute && (
               <>
+                {console.log('🔍 Rendering form - editingRoute:', editingRoute, 'modalMode:', modalMode)}
                 <div className="modal-header">
                   <h2 className="modal-title">
                     {modalMode === 'add' ? 'Add New Route' : 'Edit Route'}
                   </h2>
                 </div>
+
+                {/* Auto-Assignment Preview for Add Mode */}
+                {modalMode === 'add' && (
+                  <div style={{
+                    padding: '12px 24px',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    borderBottom: '1px solid #e0e0e0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px'
+                  }}>
+                    <div style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '6px 12px',
+                      backgroundColor: 'rgba(255,255,255,0.9)',
+                      borderRadius: '6px',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      color: '#333'
+                    }}>
+                      <span>Auto-assigned:</span>
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        padding: '4px 12px',
+                        backgroundColor: editingRoute.color,
+                        color: '#fff',
+                        borderRadius: '4px',
+                        fontWeight: 'bold'
+                      }}>
+                        Route {editingRoute.number}
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div className="edit-form">
                   <div className="form-row">
@@ -371,7 +527,7 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
                       <label className="form-label">Route Number</label>
                       <input
                         type="text"
-                        value={editingRoute.number}
+                        value={editingRoute?.number || ''}
                         onChange={(e) => handleInputChange('number', e.target.value)}
                         className="form-input"
                       />
@@ -380,7 +536,7 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
                       <label className="form-label">Route Color</label>
                       <input
                         type="color"
-                        value={editingRoute.color}
+                        value={editingRoute?.color || '#FF5722'}
                         onChange={(e) => handleInputChange('color', e.target.value)}
                         className="form-input-color"
                       />
@@ -451,45 +607,73 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
                       </button>
                     </div>
                     
-                    {showMapEditor ? (
+                    {!showMapEditor && modalMode === 'edit' && editingRoute.majorStops.length > 0 && (
+                      <div className="existing-stops-section">
+                        <h5 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: '600', color: '#333' }}>
+                          Existing Stops ({editingRoute.majorStops.length})
+                        </h5>
+                        <div className="existing-stops-list">
+                          {editingRoute.majorStops.map((stop, index) => (
+                            <div key={index} className="existing-stop-item">
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                flex: 1,
+                                padding: '10px',
+                                backgroundColor: '#f5f5f5',
+                                borderRadius: '6px'
+                              }}>
+                                <div style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  width: '28px',
+                                  height: '28px',
+                                  backgroundColor: editingRoute.color,
+                                  color: '#fff',
+                                  borderRadius: '50%',
+                                  fontWeight: 'bold',
+                                  fontSize: '13px'
+                                }}>
+                                  {index + 1}
+                                </div>
+                                <span style={{ flex: 1, color: '#333', fontWeight: '500' }}>{stop}</span>
+                                {editingRoute.majorStops.length > 1 && (
+                                  <button
+                                    type="button"
+                                    className="remove-stop-btn"
+                                    onClick={() => removeStop(index)}
+                                    style={{
+                                      padding: '6px 10px',
+                                      backgroundColor: '#ff4444',
+                                      color: '#fff',
+                                      border: 'none',
+                                      borderRadius: '4px',
+                                      cursor: 'pointer',
+                                      fontSize: '13px',
+                                      fontWeight: '600'
+                                    }}
+                                  >
+                                    <DeleteIcon /> Remove
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {showMapEditor && (
                       <div className="map-editor-container">
                         <RouteMapEditor
                           route={editingRoute}
                           onSave={handleMapEditorSave}
                           onCancel={() => setShowMapEditor(false)}
+                          isNewRoute={modalMode === 'add'}
                         />
                       </div>
-                    ) : (
-                      <>
-                        {editingRoute.majorStops.map((stop, index) => (
-                          <div key={index} className="stop-input-group">
-                            <input
-                              type="text"
-                              value={stop}
-                              onChange={(e) => handleStopChange(index, e.target.value)}
-                              className="form-input"
-                              placeholder={`Stop ${index + 1}`}
-                            />
-                            {editingRoute.majorStops.length > 1 && (
-                              <button
-                                type="button"
-                                className="remove-stop-btn"
-                                onClick={() => removeStop(index)}
-                              >
-                                <DeleteIcon />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                        <button
-                          type="button"
-                          className="add-stop-btn"
-                          onClick={addStop}
-                        >
-                          <AddIcon />
-                          Add Stop
-                        </button>
-                      </>
                     )}
                   </div>
 
@@ -497,7 +681,7 @@ const Routes = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestL
                     <button
                       type="button"
                       className="cancel-btn"
-                      onClick={closeModal}
+                      onClick={safeCloseModal}
                     >
                       Cancel
                     </button>

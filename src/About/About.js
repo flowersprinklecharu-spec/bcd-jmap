@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import Navbar from '../Navbar/Navbar';
+// Navbar moved to App.js (top-level)
 import { saveAboutContent, db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 
-const About = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestLogin }) => {
-  const [isAdmin, setIsAdmin] = useState(initialIsAdmin || false);
+const About = ({ onNavigate, onRequestLogin }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [aboutContent, setAboutContent] = useState({
@@ -73,28 +72,11 @@ const About = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestLo
 
   return (
     <div className="about-page">
-      <Navbar 
-        isAdmin={isAdmin} 
-        onAdminToggle={onAdminToggle || (() => setIsAdmin(!isAdmin))}
-        onNavigate={onNavigate}
-        onRequestLogin={onRequestLogin}
-        currentPage="about"
-      />
-
+      {/* Navbar is rendered by App.js */}
       <div className="about-container">
         <div className="about-content">
-          {isAdmin && (
-            <div className="admin-controls">
-              <button 
-                className="edit-btn"
-                onClick={() => setIsEditing(!isEditing)}
-              >
-                {isEditing ? 'Cancel' : 'Edit About Page'}
-              </button>
-            </div>
-          )}
-
-          {isEditing && isAdmin ? (
+          {/* Admin edit removed from public UI */}
+          {isEditing ? (
             // Edit Mode
             <div className="edit-form">
               <div className="form-group">

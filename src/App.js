@@ -6,78 +6,115 @@ import LandmarksPage from './Landmarks/Landmarks';
 import AnnouncementsPage from './Announcements/Announcements';
 import AboutPage from './About/About';
 import AdminLoginPage from './Login/AdminLoginPage';
+import ConnectionStatus from './components/ConnectionStatus';
+import { testAdminPersistence } from './utils/testAdmin';
+import { auth, isAdminByEmail } from './firebase';
+import { AdminProvider } from './contexts/AdminContext';
 import './Home/home.css';
 import './Navbar/navbar.css';
 import './Routes/routes.css';
 import './RouteEditor/route-editor.css';
 import './Landmarks/landmarks.css';
 import './Announcements/announcements.css';
-import './Login/login.css';
 import './About/about.css';
+import Navbar from './Navbar/Navbar';
 
 function App() {
-  const [currentPage, setCurrentPage] = useState('home');
-  const [pageParams, setPageParams] = useState({});
-  const [isAdmin, setIsAdmin] = useState(() => {
-    // Always trust localStorage on initial load
-    return localStorage.getItem('isAdmin') === 'true';
-  });
-  const [isAuthLoading, setIsAuthLoading] = useState(false); // Start as false, only show loading when explicitly checking auth
-
-  // Admin state controlled ONLY by localStorage - Firebase Auth disabled for admin state
-  useEffect(() => {
-    // Just trust localStorage completely - no Firebase auth state management
-    const storedAdmin = localStorage.getItem('isAdmin') === 'true';
-    const storedUser = localStorage.getItem('adminUser');
-    
-    console.log('App loaded - Admin state from localStorage:', storedAdmin);
-    if (storedAdmin && storedUser) {
-      console.log('Restoring admin session for:', storedUser);
+  const [currentPage, setCurrentPage] = useState(() => {
+    // Check if URL path is /admin-login
+    if (window.location.pathname === '/admin-login') {
+      return 'admin';
     }
-    
-    // Admin state is already set from localStorage in useState initializer
-    // No need to change it here unless we want to do additional verification
-    setIsAuthLoading(false);
+    return 'home';
+  });
+  const [pageParams, setPageParams] = useState({});
+  
+  // Initialize isAdmin - will be set after checking Firebase Auth and Firestore
+  const [isAdmin, setIsAdmin] = useState(false);
+  
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  // On mount: Use onAuthStateChanged to wait for Firebase to restore session, then verify admin status
+  useEffect(() => {
+    // Subscribe to auth state changes - this waits for Firebase to fully initialize
+    const unsubscribe = auth.onAuthStateChanged(async (currentUser) => {
+      try {
+        if (currentUser && currentUser.email) {
+          console.log('👤 Firebase Auth session restored:', currentUser.email);
+          
+          // Verify if this email is in the admins collection
+          const isAuthorizedAdmin = await isAdminByEmail(currentUser.email);
+          setIsAdmin(isAuthorizedAdmin);
+          
+          if (isAuthorizedAdmin) {
+            console.log('✅ Admin verified via Firestore - user can access admin features');
+            // Store for consistency
+            localStorage.setItem('jmap_isAdmin', 'true');
+            localStorage.setItem('jmap_adminUser', currentUser.email);
+          } else {
+            console.log('❌ User logged in but not admin - clearing admin state');
+            localStorage.removeItem('jmap_isAdmin');
+            localStorage.removeItem('jmap_adminUser');
+            setIsAdmin(false);
+          }
+        } else {
+          console.log('❌ No Firebase Auth session - user is not logged in');
+          localStorage.removeItem('jmap_isAdmin');
+          localStorage.removeItem('jmap_adminUser');
+          setIsAdmin(false);
+        }
+      } catch (err) {
+        console.error('Error checking admin status:', err);
+        setIsAdmin(false);
+      } finally {
+        setIsAuthLoading(false);
+      }
+    });
+
+    // Handle /admin-login URL navigation
+    if (window.location.pathname === '/admin-login') {
+      setCurrentPage('admin');
+    }
+
+    // Cleanup subscription on unmount
+    return () => unsubscribe();
   }, []);
 
   const handleAdminToggle = async () => {
     if (isAdmin) {
-      // Explicit logout with confirmation - ONLY way to logout
+      // Explicit logout with confirmation
       if (window.confirm('Are you sure you want to logout?')) {
-        console.log('Admin manually logging out');
-        
-        // Clear local state first
-        setIsAdmin(false);
+        // Clear everything from localStorage (both our keys and backup keys)
+        localStorage.removeItem('jmap_isAdmin');
+        localStorage.removeItem('jmap_adminUser');
         localStorage.removeItem('isAdmin');
         localStorage.removeItem('adminUser');
+        setIsAdmin(false);
         setCurrentPage('home');
+        console.log('✅ Admin logged out and localStorage cleared');
         
-        // Try to logout from Firebase but don't wait for it or let it affect local state
+        // Firebase logout
         try {
           const { logoutUser } = await import('./firebase');
           await logoutUser();
-          console.log('Firebase logout completed');
         } catch (error) {
-          console.error('Firebase logout failed (but local logout succeeded):', error);
+          console.log('Firebase logout error (safe to ignore):', error);
         }
       }
     } else {
-      // Navigate to login page
+      // Not admin, go to login
       setCurrentPage('admin');
     }
   };
 
   const handleLoginSuccess = (user) => {
-    console.log('Login success - setting admin state:', user?.email);
-    
-    // Set admin state in both React and localStorage
-    setIsAdmin(true);
+    // Store with unique keys to avoid conflicts
+    localStorage.setItem('jmap_isAdmin', 'true');
+    localStorage.setItem('jmap_adminUser', user.email);
     localStorage.setItem('isAdmin', 'true');
-    if (user?.email) {
-      localStorage.setItem('adminUser', user.email);
-    }
+    localStorage.setItem('adminUser', user.email);
     
-    console.log('Admin state saved to localStorage');
+    setIsAdmin(true);
     setCurrentPage('home');
   };
 
@@ -87,27 +124,11 @@ function App() {
   };
 
   const renderPage = () => {
-    // Show loading while checking auth state
-    if (isAuthLoading) {
-      return (
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          height: '100vh',
-          fontSize: '18px',
-          color: '#666'
-        }}>
-          Loading...
-        </div>
-      );
-    }
+    const handleRequestLogin = () => setCurrentPage('admin');
 
-    // Pass isAdmin and handleAdminToggle to all pages
     const sharedProps = {
       onNavigate: handleNavigate,
-      isAdmin: isAdmin,
-      onAdminToggle: handleAdminToggle
+      onRequestLogin: handleRequestLogin
     };
 
     switch(currentPage) {
@@ -116,7 +137,7 @@ function App() {
       case 'routes':
         return <RoutesPage {...sharedProps} />;
       case 'route-editor':
-        return <RouteEditor {...sharedProps} routeId={pageParams.routeId} />;
+        return <RouteEditor {...sharedProps} routeId={pageParams.routeId} isAdmin={isAdmin} onAdminToggle={handleAdminToggle} />;
       case 'landmarks':
         return <LandmarksPage {...sharedProps} />;
       case 'announcements':
@@ -132,7 +153,11 @@ function App() {
 
   return (
     <div className="App">
-      {renderPage()}
+      <ConnectionStatus />
+      <AdminProvider isAdmin={isAdmin} onAdminToggle={handleAdminToggle} isAuthLoading={isAuthLoading}>
+        <Navbar isAdmin={isAdmin} onAdminToggle={handleAdminToggle} onNavigate={handleNavigate} currentPage={currentPage} />
+        {renderPage()}
+      </AdminProvider>
     </div>
   );
 }

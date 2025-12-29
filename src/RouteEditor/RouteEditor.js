@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import Navbar from '../Navbar/Navbar';
 import RouteMapEditor from '../Routes/RouteMapEditor';
 import TestMap from '../Routes/TestMap';
 import { saveRoute, normalizeDocData } from '../firebase';
@@ -81,12 +80,7 @@ const RouteEditor = ({ onNavigate, routeId, isAdmin, onAdminToggle, onRequestLog
   if (!route) {
     return (
       <div className="route-editor-page">
-        <Navbar 
-          onNavigate={onNavigate} 
-          isAdmin={isAdmin}
-          onAdminToggle={onAdminToggle}
-          onRequestLogin={onRequestLogin}
-        />
+        {/* Navbar is rendered by App.js */}
         <div className="editor-container-page">
           <p>{loading ? 'Loading route...' : 'Route not found'}</p>
         </div>
@@ -96,13 +90,7 @@ const RouteEditor = ({ onNavigate, routeId, isAdmin, onAdminToggle, onRequestLog
 
   return (
     <div className="route-editor-page">
-      <Navbar 
-        onNavigate={onNavigate} 
-        isAdmin={isAdmin}
-        onAdminToggle={onAdminToggle}
-        onRequestLogin={onRequestLogin}
-      />
-
+      {/* Navbar is rendered by App.js */}
       <div className="editor-container-page">
         <div className="editor-header">
           <button 

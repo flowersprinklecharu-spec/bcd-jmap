@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db, normalizeDocData } from '../firebase';
-import Navbar from '../Navbar/Navbar';
+// Navbar moved to App.js (top-level)
 import LeafletMap from '../Map/LeafletMap';
 
 // SVG Icons
@@ -23,7 +23,7 @@ const MapPinSmallIcon = () => (
   </svg>
 );
 
-const JeepneyMap = ({ onNavigate, isAdmin, onAdminToggle, onRequestLogin }) => {
+const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
   const [destination, setDestination] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState(null);
@@ -230,13 +230,7 @@ const JeepneyMap = ({ onNavigate, isAdmin, onAdminToggle, onRequestLogin }) => {
 
   return (
     <div className="app">
-      <Navbar 
-        isAdmin={isAdmin} 
-        onAdminToggle={onAdminToggle}
-        onNavigate={onNavigate}
-        onRequestLogin={onRequestLogin}
-        currentPage="home"
-      />
+      {/* Navbar is rendered by App.js */}
 
       <div className="main-container">
         <div className="main-grid">

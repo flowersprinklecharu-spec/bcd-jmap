@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, Circle } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import Navbar from '../Navbar/Navbar';
+// Navbar moved to App.js (top-level)
 import { saveLandmark, deleteLandmark, normalizeDocData } from '../firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { AdminContext } from '../contexts/AdminContext';
 import './landmarks.css';
 
 // Fix Leaflet default marker icon issue
@@ -127,11 +128,11 @@ const suggestRoutes = (userLat, userLon, landmarkLat, landmarkLon) => {
   return commonRoutes.length > 0 ? commonRoutes : landmarkRoutes;
 };
 
-const Landmarks = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onRequestLogin }) => {
+const Landmarks = ({ onNavigate, onRequestLogin }) => {
+  const { isAdmin } = useContext(AdminContext);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedLandmark, setSelectedLandmark] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(initialIsAdmin || false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingLandmark, setEditingLandmark] = useState(null);
   const [editMode, setEditMode] = useState('view');
@@ -332,13 +333,7 @@ const Landmarks = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onReque
 
   return (
     <div className="landmarks-page">
-      <Navbar 
-        isAdmin={isAdmin} 
-        onAdminToggle={onAdminToggle || (() => setIsAdmin(!isAdmin))}
-        onNavigate={onNavigate}
-        currentPage="landmarks"
-      />
-
+      {/* Navbar is rendered by App.js */}
       <div className="landmarks-container">
         <div className="landmarks-hero">
           <div className="landmarks-header-row">
@@ -567,25 +562,7 @@ const Landmarks = ({ onNavigate, isAdmin: initialIsAdmin, onAdminToggle, onReque
               )}
             </div>
 
-            {isAdmin && (
-              <div className="modal-admin-actions">
-                <button 
-                  className="modal-edit-btn"
-                  onClick={() => {
-                    closeModal();
-                    handleEditLandmark(selectedLandmark);
-                  }}
-                >
-                  <EditIcon /> Edit
-                </button>
-                <button 
-                  className="modal-delete-btn"
-                  onClick={() => handleDeleteLandmark(selectedLandmark.id, selectedLandmark.name)}
-                >
-                  <DeleteIcon /> Delete
-                </button>
-              </div>
-            )}
+            {/* Admin edit/delete removed from public modal */}
           </div>
         </div>
       )}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapContainer, TileLayer, Marker, Popup, LayersControl, ZoomControl } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, LayersControl, ZoomControl } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -79,7 +79,54 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
           </LayersControl.BaseLayer>
         </LayersControl>
 
-        {/* Route polylines removed - routes will be added manually with accurate coordinates */}
+        {/* Render route polylines for routes with coordinates */}
+        {routes && routes.map(route => {
+          if (!route.coordinates || !Array.isArray(route.coordinates) || route.coordinates.length < 2) {
+            return null;
+          }
+
+          // Validate that all coordinates are valid [lat, lng] pairs
+          const validCoords = route.coordinates.filter(coord => 
+            Array.isArray(coord) && 
+            coord.length === 2 && 
+            typeof coord[0] === 'number' && 
+            typeof coord[1] === 'number' &&
+            coord[0] >= -90 && coord[0] <= 90 &&
+            coord[1] >= -180 && coord[1] <= 180
+          );
+
+          if (validCoords.length < 2) {
+            return null;
+          }
+
+          // Check if this route is selected
+          const isSelected = selectedRoute && selectedRoute.id === route.id;
+          const opacity = isSelected ? 1.0 : 0.6;
+          const weight = isSelected ? 6 : 4;
+
+          return (
+            <Polyline
+              key={route.id}
+              positions={validCoords}
+              pathOptions={{
+                color: route.color || '#3b82f6',
+                weight: weight,
+                opacity: opacity,
+                lineJoin: 'round',
+                lineCap: 'round'
+              }}
+            >
+              <Popup>
+                <div style={{ fontWeight: 'bold', color: route.color }}>
+                  Route {route.number}: {route.name}
+                </div>
+                <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                  {route.description}
+                </div>
+              </Popup>
+            </Polyline>
+          );
+        })}
 
         {landmarks.map(landmark => {
           if (!landmark || !landmark.id) return null;

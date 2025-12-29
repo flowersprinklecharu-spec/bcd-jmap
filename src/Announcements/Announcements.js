@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import Navbar from '../Navbar/Navbar';
+import React, { useState, useEffect, useContext } from 'react';
+// Navbar moved to App.js (top-level)
 import { saveAnnouncement, deleteAnnouncement, normalizeDocData } from '../firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { AdminContext } from '../contexts/AdminContext';
 
 // SVG Icons
 const EditIcon = () => (
@@ -31,11 +32,13 @@ const CloseIcon = () => (
 
 // Announcements are loaded live from Firestore (collection: 'announcements')
 
-const Announcements = ({ onNavigate, isAdmin, onAdminToggle, onRequestLogin }) => {
+const Announcements = ({ onNavigate, onRequestLogin }) => {
+  const { isAdmin } = useContext(AdminContext);
   const [announcements, setAnnouncements] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [editMode, setEditMode] = useState('add');
   const [editingAnnouncement, setEditingAnnouncement] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Track unsaved changes
 
   useEffect(() => {
     try {
@@ -53,6 +56,33 @@ const Announcements = ({ onNavigate, isAdmin, onAdminToggle, onRequestLogin }) =
       console.warn('Firestore not available for announcements', err);
     }
   }, []);
+
+  // Auto-save draft to localStorage whenever editingAnnouncement changes
+  useEffect(() => {
+    if (editingAnnouncement && showModal) {
+      setHasUnsavedChanges(true);
+      // Save to localStorage with a debounce (save after 1 second of no changes)
+      const timer = setTimeout(() => {
+        localStorage.setItem('announcementDraft', JSON.stringify(editingAnnouncement));
+        console.log('💾 Announcement draft auto-saved');
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [editingAnnouncement, showModal]);
+
+  // Warn before closing/refreshing if there are unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (hasUnsavedChanges && editingAnnouncement && showModal) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges, editingAnnouncement, showModal]);
 
   const handleAddAnnouncement = () => {
     setEditMode('add');
@@ -98,6 +128,9 @@ const Announcements = ({ onNavigate, isAdmin, onAdminToggle, onRequestLogin }) =
         setAnnouncements(announcements.map(a => a.id === editingAnnouncement.id ? editingAnnouncement : a));
         alert('✅ Announcement updated successfully!');
       }
+      // Clear draft and unsaved changes on successful save
+      localStorage.removeItem('announcementDraft');
+      setHasUnsavedChanges(false);
       setShowModal(false);
       setEditingAnnouncement(null);
     } catch (err) {
@@ -110,16 +143,29 @@ const Announcements = ({ onNavigate, isAdmin, onAdminToggle, onRequestLogin }) =
     setEditingAnnouncement({ ...editingAnnouncement, [field]: value });
   };
 
+  // Clear unsaved changes flag when modal closes
+  useEffect(() => {
+    if (!showModal) {
+      setHasUnsavedChanges(false);
+    }
+  }, [showModal]);
+
+  // Safe close that warns about unsaved changes
+  const safeCloseModal = () => {
+    if (hasUnsavedChanges && editingAnnouncement && showModal) {
+      if (window.confirm('You have unsaved changes. Are you sure you want to close without saving?')) {
+        setShowModal(false);
+        setEditingAnnouncement(null);
+      }
+    } else {
+      setShowModal(false);
+      setEditingAnnouncement(null);
+    }
+  };
+
   return (
     <div className="announcements-page">
-      <Navbar 
-        isAdmin={isAdmin} 
-        onAdminToggle={onAdminToggle}
-        onNavigate={onNavigate}
-        onRequestLogin={onRequestLogin}
-        currentPage="announcements"
-      />
-
+      {/* Navbar is rendered by App.js */}
       <div className="announcements-container">
         <div className="announcements-header">
           <div className="announcements-header-row">
@@ -149,33 +195,17 @@ const Announcements = ({ onNavigate, isAdmin, onAdminToggle, onRequestLogin }) =
                 </div>
                 <div className="announcement-meta">
                   <div className="announcement-date">{announcement.date}</div>
-                  {isAdmin && (
-                    <div className="announcement-actions">
-                      <button 
-                        className="admin-edit-btn"
-                        onClick={() => handleEditAnnouncement(announcement)}
-                      >
-                        <EditIcon />
-                      </button>
-                      <button 
-                        className="admin-delete-btn"
-                        onClick={() => handleDeleteAnnouncement(announcement.id)}
-                      >
-                        <DeleteIcon />
-                      </button>
-                    </div>
-                  )}
+                  {/* Admin edit/delete removed from public UI */}
                 </div>
               </div>
             </div>
           ))}
         </div>
       </div>
-
       {showModal && editingAnnouncement && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay" onClick={safeCloseModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={() => setShowModal(false)}>
+            <button className="modal-close" onClick={safeCloseModal}>
               <CloseIcon />
             </button>
 
@@ -243,7 +273,7 @@ const Announcements = ({ onNavigate, isAdmin, onAdminToggle, onRequestLogin }) =
                 <button
                   type="button"
                   className="cancel-btn"
-                  onClick={() => setShowModal(false)}
+                  onClick={safeCloseModal}
                 >
                   Cancel
                 </button>
