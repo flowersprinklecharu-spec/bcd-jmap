@@ -83,12 +83,15 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
   const suggestions = useMemo(() => {
     const stops = new Set();
     
-    // Add major stops from all routes
+    // Add major stops from all routes (handle both string and object formats)
     jeepneyRoutes.forEach(route => {
       if (route.majorStops && Array.isArray(route.majorStops)) {
         route.majorStops.forEach(stop => {
-          if (stop && typeof stop === 'string') {
-            stops.add(stop);
+          if (stop) {
+            const stopName = typeof stop === 'string' ? stop : stop.name;
+            if (stopName && typeof stopName === 'string') {
+              stops.add(stopName);
+            }
           }
         });
       }
@@ -220,12 +223,13 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
   const triggerFindRoute = (destinationName) => {
     if (!destinationName || jeepneyRoutes.length === 0) return;
 
-    // Find all routes that have the destination in their major stops
+    // Find all routes that have the destination in their major stops (handle both string and object formats)
     const matchingRoutes = jeepneyRoutes.filter(route =>
       route.majorStops && 
-      route.majorStops.some(stop => 
-        stop.toLowerCase() === destinationName.toLowerCase()
-      )
+      route.majorStops.some(stop => {
+        const stopName = typeof stop === 'string' ? stop : stop.name;
+        return stopName && stopName.toLowerCase() === destinationName.toLowerCase();
+      })
     );
 
     // Also find the landmark if it matches
@@ -259,7 +263,8 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
     matchingRoutes.forEach(route => {
       if (route.majorStops) {
         route.majorStops.forEach(stop => {
-          stopsToHighlight.push(stop);
+          const stopName = typeof stop === 'string' ? stop : stop.name;
+          stopsToHighlight.push(stopName);
         });
       }
     });

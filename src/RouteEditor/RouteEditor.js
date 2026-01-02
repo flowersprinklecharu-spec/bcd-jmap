@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import RouteMapEditor from '../Routes/RouteMapEditor';
-import TestMap from '../Routes/TestMap';
 import { saveRoute, normalizeDocData } from '../firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';

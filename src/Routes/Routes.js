@@ -70,6 +70,9 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
   const [highlightedRoute, setHighlightedRoute] = useState(null); // For map highlighting
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Track unsaved changes
   const [landmarks, setLandmarks] = useState([]); // For map display
+  const [editingStopIndex, setEditingStopIndex] = useState(null); // For inline stop name editing
+  const [editingStopName, setEditingStopName] = useState(''); // Temporary storage for edited stop name
+  const [editingStopLocation, setEditingStopLocation] = useState(null); // For location edit modal
 
   // Memoized filtered and sorted routes
   const filteredRoutes = useMemo(() => {
@@ -87,7 +90,12 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
     setSelectedRoute(route);
     setModalMode(mode);
     if (mode === 'edit') {
-      setEditingRoute({ ...route });
+      // Ensure majorStops and coordinates exist
+      setEditingRoute({ 
+        ...route,
+        majorStops: route.majorStops || [],
+        coordinates: route.coordinates || []
+      });
       setShowMapEditor(false); // Start with form view for edit mode
     } else if (mode === 'add') {
       // Auto-assign next route number and color
@@ -120,6 +128,9 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
     setModalMode('view');
     setHasUnsavedChanges(false); // Clear unsaved changes flag
     setShowMapEditor(false);
+    setEditingStopIndex(null);
+    setEditingStopName('');
+    setEditingStopLocation(null);
   }, []);
 
   // Safe close that warns about unsaved changes
@@ -277,6 +288,26 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
       ...prev,
       majorStops: prev.majorStops.filter((_, i) => i !== index)
     }));
+  }, []);
+
+  // Handler for saving edited stop name (placeholder - can be enhanced later)
+  const handleSaveStopName = useCallback((index) => {
+    if (editingStopName.trim() && editingRoute) {
+      const updatedStops = [...editingRoute.majorStops];
+      updatedStops[index] = editingStopName;
+      setEditingRoute(prev => ({
+        ...prev,
+        majorStops: updatedStops
+      }));
+      setEditingStopIndex(null);
+      setEditingStopName('');
+    }
+  }, [editingStopName, editingRoute]);
+
+  // Handler for canceling stop name edit
+  const handleCancelStopEdit = useCallback(() => {
+    setEditingStopIndex(null);
+    setEditingStopName('');
   }, []);
 
   return (
@@ -607,7 +638,7 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                       </button>
                     </div>
                     
-                    {!showMapEditor && modalMode === 'edit' && editingRoute.majorStops.length > 0 && (
+                    {!showMapEditor && modalMode === 'edit' && editingRoute && Array.isArray(editingRoute.majorStops) && editingRoute.majorStops.length > 0 && (
                       <div className="existing-stops-section">
                         <h5 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: '600', color: '#333' }}>
                           Existing Stops ({editingRoute.majorStops.length})
@@ -638,8 +669,10 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                                 }}>
                                   {index + 1}
                                 </div>
-                                <span style={{ flex: 1, color: '#333', fontWeight: '500' }}>{stop}</span>
-                                {editingRoute.majorStops.length > 1 && (
+                                <span style={{ flex: 1, color: '#333', fontWeight: '500' }}>
+                                  {typeof stop === 'string' ? stop : (stop && stop.name) ? stop.name : 'Unknown Stop'}
+                                </span>
+                                {editingRoute.majorStops.length > 1 ? (
                                   <button
                                     type="button"
                                     className="remove-stop-btn"
@@ -657,7 +690,7 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                                   >
                                     <DeleteIcon /> Remove
                                   </button>
-                                )}
+                                ) : null}
                               </div>
                             </div>
                           ))}

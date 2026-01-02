@@ -82,16 +82,16 @@ async function main() {
   ];
 
   const sampleLandmarks = [
-    { id: 101, name: 'Bacolod Public Plaza', description: 'Historic public plaza at the city center, popular gathering spot', category: 'Recreation', icon: 'P', iconColor: '#FF5722', location: new admin.firestore.GeoPoint(10.6772, 122.9576), address: 'Downtown Bacolod', suggestedRoutes: [1, 2, 3] },
-    { id: 102, name: 'SM City Bacolod', description: 'Large shopping mall with retail, dining, and entertainment', category: 'Malls', icon: 'S', iconColor: '#2196F3', location: new admin.firestore.GeoPoint(10.6779, 122.9570), address: 'Gatuslao St, Bacolod', suggestedRoutes: [1, 5, 6] },
-    { id: 103, name: 'La Salle University', description: 'Major educational institution in Bacolod', category: 'Schools', icon: 'U', iconColor: '#4CAF50', location: new admin.firestore.GeoPoint(10.6800, 122.9500), address: 'Lacson St, Bacolod', suggestedRoutes: [6, 7] },
-    { id: 104, name: 'Robinsons Place Bacolod', description: 'Shopping mall with various stores and restaurants', category: 'Malls', icon: 'R', iconColor: '#E91E63', location: new admin.firestore.GeoPoint(10.6750, 122.9600), address: 'Araneta St, Bacolod', suggestedRoutes: [5] },
-    { id: 105, name: 'Central Market', description: 'Bustling market with fresh produce and local goods', category: 'Recreation', icon: 'M', iconColor: '#FFEB3B', location: new admin.firestore.GeoPoint(10.6550, 122.9650), address: 'Central Bacolod', suggestedRoutes: [8, 9, 10] },
-    { id: 106, name: 'Bacolod City Hospital', description: 'Major government hospital facility', category: 'Hospitals', icon: 'H', iconColor: '#00BCD4', location: new admin.firestore.GeoPoint(10.6720, 122.9480), address: 'Lacson St, Bacolod', suggestedRoutes: [1, 3] },
-    { id: 107, name: 'Ayala Mall Capitol Central', description: 'Modern shopping and dining destination', category: 'Malls', icon: 'A', iconColor: '#673AB7', location: new admin.firestore.GeoPoint(10.6600, 122.9700), address: 'South Capitol Rd, Bacolod', suggestedRoutes: [10, 11] },
-    { id: 108, name: 'The Ruins', description: 'Historic mansion ruins, popular tourist attraction', category: 'Recreation', icon: 'T', iconColor: '#FF9800', location: new admin.firestore.GeoPoint(10.5700, 122.8900), address: 'Talisay, Negros Occidental', suggestedRoutes: [] },
-    { id: 109, name: 'Masferre Restaurant', description: 'Popular restaurant serving local cuisine', category: 'Restaurants', icon: 'F', iconColor: '#F44336', location: new admin.firestore.GeoPoint(10.6700, 122.9550), address: 'Lacson St, Bacolod', suggestedRoutes: [1, 6] },
-    { id: 110, name: 'Government Center', description: 'Government administrative buildings and offices', category: 'Recreation', icon: 'G', iconColor: '#8BC34A', location: new admin.firestore.GeoPoint(10.6720, 122.9450), address: 'Downtown Bacolod', suggestedRoutes: [4] }
+    { id: 101, name: 'Bacolod Public Plaza', description: 'Historic public plaza at the city center, popular gathering spot', category: 'Recreation', address: 'Downtown Bacolod', coordinates: [10.6772, 122.9576] },
+    { id: 102, name: 'SM City Bacolod', description: 'Large shopping mall with retail, dining, and entertainment', category: 'Malls', address: 'Gatuslao St, Bacolod', coordinates: [10.6779, 122.9570] },
+    { id: 103, name: 'University of St. La Salle', description: 'Major private educational institution in Bacolod', category: 'Schools', address: 'Lacson St, Bacolod', coordinates: [10.6850, 122.9450] },
+    { id: 104, name: 'Robinsons Place Bacolod', description: 'Shopping mall with various stores and restaurants', category: 'Malls', address: 'Araneta St, Bacolod', coordinates: [10.6917, 122.9506] },
+    { id: 105, name: 'Central Market', description: 'Bustling market with fresh produce and local goods', category: 'Recreation', address: 'Central Bacolod', coordinates: [10.6547, 122.9673] },
+    { id: 106, name: 'Bacolod City Hospital', description: 'Major government hospital facility', category: 'Hospitals', address: 'Lacson St, Bacolod', coordinates: [10.6800, 122.9480] },
+    { id: 107, name: 'Ayala Mall Capitol Central', description: 'Modern shopping and dining destination', category: 'Malls', address: 'South Capitol Rd, Bacolod', coordinates: [10.6566, 122.9672] },
+    { id: 108, name: 'University of Negros Occidental-Recoletos', description: 'Top-tier private university in Bacolod', category: 'Schools', address: 'Lacson St, Bacolod', coordinates: [10.6799, 122.9523] },
+    { id: 109, name: 'Bacolod City Hall', description: 'City government administrative building', category: 'Recreation', address: 'Downtown Bacolod', coordinates: [10.6730, 122.9445] },
+    { id: 110, name: 'The Negros Museum', description: 'Cultural heritage and history museum', category: 'Recreation', address: 'Downtown Bacolod', coordinates: [10.6760, 122.9540] }
   ];
 
   const sampleAnnouncements = [

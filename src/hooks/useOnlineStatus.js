@@ -16,7 +16,7 @@ export const useOnlineStatus = () => {
       setLastStatusChange(initialStatus);
       setShowInitial(false);
     }
-  }, []);
+  }, [showInitial]);
 
   useEffect(() => {
     const handleOnline = () => {

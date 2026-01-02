@@ -7,7 +7,6 @@ import AnnouncementsPage from './Announcements/Announcements';
 import AboutPage from './About/About';
 import AdminLoginPage from './Login/AdminLoginPage';
 import ConnectionStatus from './components/ConnectionStatus';
-import { testAdminPersistence } from './utils/testAdmin';
 import { auth, isAdminByEmail } from './firebase';
 import { AdminProvider } from './contexts/AdminContext';
 import './Home/home.css';

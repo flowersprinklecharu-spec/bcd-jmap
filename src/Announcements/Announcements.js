@@ -1,23 +1,11 @@
 import React, { useState, useEffect, useContext } from 'react';
 // Navbar moved to App.js (top-level)
-import { saveAnnouncement, deleteAnnouncement, normalizeDocData } from '../firebase';
+import { saveAnnouncement, normalizeDocData } from '../firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AdminContext } from '../contexts/AdminContext';
 
 // SVG Icons
-const EditIcon = () => (
-  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"></path>
-  </svg>
-);
-
-const DeleteIcon = () => (
-  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"></path>
-  </svg>
-);
-
 const AddIcon = () => (
   <svg width="20" height="20" fill="currentColor" viewBox="0 0 24 24">
     <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"></path>
@@ -96,25 +84,6 @@ const Announcements = ({ onNavigate, onRequestLogin }) => {
       isImportant: false
     });
     setShowModal(true);
-  };
-
-  const handleEditAnnouncement = (announcement) => {
-    setEditMode('edit');
-    setEditingAnnouncement({ ...announcement });
-    setShowModal(true);
-  };
-
-  const handleDeleteAnnouncement = async (announcementId) => {
-    if (window.confirm('Are you sure you want to delete this announcement?')) {
-      try {
-        await deleteAnnouncement(announcementId);
-        setAnnouncements(announcements.filter(a => a.id !== announcementId));
-        alert('✅ Announcement deleted successfully!');
-      } catch (err) {
-        console.error(err);
-        alert('❌ Failed to delete announcement: ' + err.message);
-      }
-    }
   };
 
   const handleSaveAnnouncement = async () => {

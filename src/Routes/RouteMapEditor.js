@@ -163,14 +163,21 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute }) => {
                 <h4>Existing Stops ({(route.majorStops || []).length})</h4>
                 {(route.majorStops || []).length > 0 && (
                   <div className="existing-stops-list">
-                    {route.majorStops.map((stopName, index) => (
-                      <div key={`existing-${index}`} className="existing-stop-item">
-                        <div className="stop-item-number" style={{ backgroundColor: '#666' }}>
-                          {index + 1}
+                    {route.majorStops.map((stop, index) => {
+                      const stopName = typeof stop === 'string' ? stop : stop.name;
+                      const hasCoords = typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined;
+                      return (
+                        <div key={`existing-${index}`} className="existing-stop-item">
+                          <div className="stop-item-number" style={{ backgroundColor: '#666' }}>
+                            {index + 1}
+                          </div>
+                          <div className="stop-item-name">
+                            {stopName}
+                            {hasCoords && <span className="coords-badge">📍 {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}</span>}
+                          </div>
                         </div>
-                        <div className="stop-item-name">{stopName}</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

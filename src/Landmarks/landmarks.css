@@ -197,6 +197,12 @@
 }
 
 /* Admin Buttons */
+.admin-buttons-group {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
 .admin-add-btn {
   display: flex;
   align-items: center;
@@ -751,11 +757,40 @@
   .modal-admin-actions {
     flex-direction: column;
   }
+}
 
-  .modal-edit-btn,
-  .modal-delete-btn {
-    width: 100%;
-    justify-content: center;
+/* Map Editor Modal */
+.map-editor-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.map-editor-modal-content {
+  background: white;
+  border-radius: 8px;
+  max-width: 1000px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+@media (max-width: 768px) {
+  .map-editor-modal-overlay {
+    padding: 0.5rem;
+  }
+
+  .map-editor-modal-content {
+    max-height: 95vh;
   }
 }
 
@@ -788,3 +823,6 @@
     width: 100%;
   }
 }
+
+/* Add Mode Modal - REMOVED */
+

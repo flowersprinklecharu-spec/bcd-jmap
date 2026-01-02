@@ -7,6 +7,7 @@ import { saveLandmark, deleteLandmark, normalizeDocData } from '../firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AdminContext } from '../contexts/AdminContext';
+import LandmarkMapEditor from './LandmarkMapEditor';
 import './landmarks.css';
 
 // Fix Leaflet default marker icon issue
@@ -54,34 +55,9 @@ const NavigationIcon = () => (
   </svg>
 );
 
-// Route data with paths
-const routesData = [
-  {
-    id: 1,
-    number: '1',
-    name: 'Banago-Libertad Loop',
-    color: '#FF5722',
-    path: [[10.6950, 122.9450], [10.6850, 122.9550], [10.6750, 122.9500]]
-  },
-  {
-    id: 2,
-    number: '2',
-    name: 'Bata-Libertad Loop',
-    color: '#2196F3',
-    path: [[10.6850, 122.9600], [10.6750, 122.9500]]
-  },
-  {
-    id: 3,
-    number: '3',
-    name: 'Northbound Terminal-Libertad Loop',
-    color: '#4CAF50',
-    path: [[10.7000, 122.9500], [10.6750, 122.9500]]
-  },
-];
-
-// Calculate distance
+// Calculate distance using Haversine formula
 const calculateDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371;
+  const R = 6371; // Earth's radius in km
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = 
@@ -92,40 +68,67 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
-// Find nearby routes
-const findNearbyRoutes = (lat, lon, maxDistance = 0.5) => {
-  if (typeof lat !== 'number' || typeof lon !== 'number') return [];
+// Get closest distance from user to route's coordinates
+const getClosestDistanceToRoute = (userLat, userLon, routeCoordinates) => {
+  if (!routeCoordinates || !Array.isArray(routeCoordinates) || routeCoordinates.length === 0) {
+    return Infinity;
+  }
   
-  const nearbyRoutes = [];
-  routesData.forEach(route => {
-    if (!route.path || !Array.isArray(route.path)) return;
-    
-    const isNear = route.path.some(point => {
-      if (!Array.isArray(point) || point.length !== 2) return false;
-      const distance = calculateDistance(lat, lon, point[0], point[1]);
-      return distance <= maxDistance;
-    });
-    
-    if (isNear) nearbyRoutes.push(route);
+  let closestDistance = Infinity;
+  routeCoordinates.forEach(coord => {
+    if (Array.isArray(coord) && coord.length === 2 && typeof coord[0] === 'number' && typeof coord[1] === 'number') {
+      const distance = calculateDistance(userLat, userLon, coord[0], coord[1]);
+      closestDistance = Math.min(closestDistance, distance);
+    }
   });
-  return nearbyRoutes;
+  
+  return closestDistance;
 };
 
-// Suggest routes
-const suggestRoutes = (userLat, userLon, landmarkLat, landmarkLon) => {
-  if (typeof userLat !== 'number' || typeof userLon !== 'number' ||
-      typeof landmarkLat !== 'number' || typeof landmarkLon !== 'number') {
+// Suggest jeepneys based on: 1) goes to landmark 2) near user's location
+const getSuggestedJeepneys = (routes, userLat, userLon, landmarkName, maxProximityDistance = 3.0) => {
+  if (!routes || !Array.isArray(routes) || !landmarkName) {
     return [];
   }
   
-  const userRoutes = findNearbyRoutes(userLat, userLon);
-  const landmarkRoutes = findNearbyRoutes(landmarkLat, landmarkLon);
+  // Filter routes that have the landmark as a major stop
+  const routesWithLandmark = routes.filter(route => {
+    if (!route.majorStops || !Array.isArray(route.majorStops)) return false;
+    
+    return route.majorStops.some(stop => {
+      const stopName = typeof stop === 'string' ? stop : stop.name;
+      return stopName && stopName.toLowerCase() === landmarkName.toLowerCase();
+    });
+  });
   
-  const commonRoutes = userRoutes.filter(userRoute =>
-    landmarkRoutes.some(landmarkRoute => landmarkRoute.id === userRoute.id)
-  );
+  // Filter by proximity to user and sort by distance
+  const nearbyJeepneys = routesWithLandmark
+    .map(route => {
+      const distance = getClosestDistanceToRoute(userLat, userLon, route.coordinates);
+      return { ...route, userDistance: distance };
+    })
+    .filter(route => route.userDistance <= maxProximityDistance)
+    .sort((a, b) => a.userDistance - b.userDistance);
   
-  return commonRoutes.length > 0 ? commonRoutes : landmarkRoutes;
+  // If no nearby routes found within proximity, return all routes that go to the landmark
+  if (nearbyJeepneys.length === 0) {
+    return routesWithLandmark.map(route => {
+      const distance = getClosestDistanceToRoute(userLat, userLon, route.coordinates);
+      return { ...route, userDistance: distance };
+    }).sort((a, b) => a.userDistance - b.userDistance);
+  }
+  
+  return nearbyJeepneys;
+}
+
+// Category to emoji mapping
+const categoryEmojis = {
+  'Schools': '🎓',
+  'Hospitals': '🏥',
+  'Malls': '🛍️',
+  'Restaurants': '🍽️',
+  'Recreation': '🎮',
+  'Other': '📍'
 };
 
 const Landmarks = ({ onNavigate, onRequestLogin }) => {
@@ -139,9 +142,10 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
   const [landmarks, setLandmarks] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
   const [suggestedRoutes, setSuggestedRoutes] = useState([]);
-  const [distance, setDistance] = useState(null);
+  const [showMapEditor, setShowMapEditor] = useState(false);
+  const [routes, setRoutes] = useState([]);
 
-  const categories = ['All', 'Schools', 'Hospitals', 'Malls', 'Restaurants', 'Recreation'];
+  const categories = ['All', 'Schools', 'Hospitals', 'Malls', 'Restaurants', 'Recreation', 'Other'];
 
   // Get user location
   useEffect(() => {
@@ -192,31 +196,36 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
     }
   }, []);
 
-  // Calculate routes when landmark selected
+  // Load routes from Firestore
   useEffect(() => {
-    if (selectedLandmark && userLocation) {
-      const coords = selectedLandmark.coordinates || [10.6750, 122.9500];
-      
-      if (Array.isArray(coords) && coords.length === 2 && 
-          typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-        const dist = calculateDistance(
-          userLocation.lat,
-          userLocation.lon,
-          coords[0],
-          coords[1]
-        );
-        setDistance(dist);
+    try {
+      const routesCol = collection(db, 'routes');
+      const routesQuery = query(routesCol);
+      const unsub = onSnapshot(routesQuery, (snapshot) => {
+        const data = snapshot.docs.map(doc => normalizeDocData(doc));
+        setRoutes(data);
+      }, (err) => {
+        console.error('Routes error', err);
+      });
 
-        const routes = suggestRoutes(
-          userLocation.lat,
-          userLocation.lon,
-          coords[0],
-          coords[1]
-        );
-        setSuggestedRoutes(routes);
-      }
+      return () => unsub && unsub();
+    } catch (err) {
+      console.warn('Routes Firestore unavailable', err);
     }
-  }, [selectedLandmark, userLocation]);
+  }, []);
+
+  // Suggest jeepneys when landmark selected
+  useEffect(() => {
+    if (selectedLandmark && userLocation && routes.length > 0) {
+      const suggestedJeepneys = getSuggestedJeepneys(
+        routes,
+        userLocation.lat,
+        userLocation.lon,
+        selectedLandmark.name
+      );
+      setSuggestedRoutes(suggestedJeepneys);
+    }
+  }, [selectedLandmark, userLocation, routes]);
 
   const filteredLandmarks = landmarks.filter(landmark => {
     const matchesSearch = (landmark.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -232,7 +241,18 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
   const closeModal = () => {
     setSelectedLandmark(null);
     setSuggestedRoutes([]);
-    setDistance(null);
+  };
+
+  const handleMapEditorSave = (newLandmark) => {
+    saveLandmark(newLandmark).then(() => {
+      const isEditMode = editingLandmark && editingLandmark.id;
+      alert(isEditMode ? '✅ Landmark updated successfully!' : '✅ Landmark added successfully!');
+      setShowMapEditor(false);
+      setEditingLandmark(null);
+    }).catch(err => {
+      console.error('Error saving landmark:', err);
+      alert('❌ Failed to save landmark. Please try again.');
+    });
   };
 
   // Custom icons
@@ -253,20 +273,9 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
   });
 
   const handleAddLandmark = () => {
-    setEditingLandmark({
-      id: Date.now(),
-      name: '',
-      category: 'Schools',
-      icon: 'L',
-      iconColor: '#2196F3',
-      description: '',
-      coordinates: [10.6750, 122.9500],
-      address: '',
-      operatingHours: '',
-      nearestStop: ''
-    });
+    setEditingLandmark(null); // Clear any existing landmark data
     setEditMode('add');
-    setShowEditModal(true);
+    setShowMapEditor(true); // Open map editor for adding
   };
 
   const handleEditLandmark = (landmark) => {
@@ -276,23 +285,13 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
     }
     setEditingLandmark(copy);
     setEditMode('edit');
-    setShowEditModal(true);
+    setShowMapEditor(true); // Open map editor for editing
   };
 
   const handleInputChange = (field, value) => {
     setEditingLandmark(prev => ({
       ...prev,
       [field]: value
-    }));
-  };
-
-  const handleCoordinateChange = (index, value) => {
-    const coords = editingLandmark.coordinates || [10.6750, 122.9500];
-    const newCoords = [...coords];
-    newCoords[index] = parseFloat(value) || 0;
-    setEditingLandmark(prev => ({
-      ...prev,
-      coordinates: newCoords
     }));
   };
 
@@ -341,7 +340,7 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
             {isAdmin && (
               <button className="admin-add-btn" onClick={handleAddLandmark}>
                 <AddIcon />
-                Add New Landmark
+                Add Landmark
               </button>
             )}
           </div>
@@ -380,7 +379,7 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
                   className="landmark-icon"
                   style={{ backgroundColor: landmark.iconColor || '#2196F3' }}
                 >
-                  {landmark.icon || 'L'}
+                  {categoryEmojis[landmark.category] || '📍'}
                 </div>
                 <div className="landmark-info">
                   <h3 className="landmark-name">{landmark.name}</h3>
@@ -399,6 +398,7 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
                     <button 
                       className="admin-edit-btn"
                       onClick={() => handleEditLandmark(landmark)}
+                      title="Edit landmark details and location"
                     >
                       <EditIcon />
                     </button>
@@ -445,18 +445,8 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
 
             <div className="modal-info-grid">
               <div className="info-box">
-                <h4 className="info-label">Operating Hours</h4>
-                <p className="info-value">{selectedLandmark.operatingHours || 'N/A'}</p>
-              </div>
-              <div className="info-box">
-                <h4 className="info-label">Nearest Stop</h4>
-                <p className="info-value">{selectedLandmark.nearestStop || 'N/A'}</p>
-              </div>
-              <div className="info-box">
-                <h4 className="info-label">Distance</h4>
-                <p className="info-value">
-                  {distance ? `${distance.toFixed(2)} km` : 'Calculating...'}
-                </p>
+                <h4 className="info-label">Category</h4>
+                <p className="info-value">{selectedLandmark.category || 'N/A'}</p>
               </div>
             </div>
 
@@ -537,7 +527,7 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
             </div>
 
             <div className="modal-section">
-              <h3 className="section-title">Suggested Routes</h3>
+              <h3 className="section-title">Suggested Jeepneys</h3>
               {suggestedRoutes.length > 0 ? (
                 <div className="stops-list">
                   {suggestedRoutes.map(route => (
@@ -650,29 +640,6 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label className="form-label">Latitude</label>
-                  <input
-                    type="number"
-                    step="0.000001"
-                    value={(editingLandmark.coordinates && editingLandmark.coordinates[0]) || 10.6750}
-                    onChange={(e) => handleCoordinateChange(0, e.target.value)}
-                    className="form-input"
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Longitude</label>
-                  <input
-                    type="number"
-                    step="0.000001"
-                    value={(editingLandmark.coordinates && editingLandmark.coordinates[1]) || 122.9500}
-                    onChange={(e) => handleCoordinateChange(1, e.target.value)}
-                    className="form-input"
-                  />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
                   <label className="form-label">Hours</label>
                   <input
                     type="text"
@@ -701,6 +668,23 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showMapEditor && isAdmin && (
+        <div className="map-editor-modal-overlay" onClick={() => setShowMapEditor(false)}>
+          <div className="map-editor-modal-content" onClick={(e) => e.stopPropagation()}>
+            <LandmarkMapEditor
+              onSave={handleMapEditorSave}
+              onCancel={() => {
+                setShowMapEditor(false);
+                setEditingLandmark(null);
+              }}
+              existingLandmarks={landmarks}
+              editingLandmark={editingLandmark}
+              isEditMode={editMode === 'edit'}
+            />
           </div>
         </div>
       )}
