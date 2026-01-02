@@ -240,6 +240,25 @@ body {
 
 .input-with-icon input {
   padding-left: 2.5rem;
+  padding-right: 2.5rem;
+}
+
+.clear-input-btn {
+  position: absolute;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  transition: color 0.2s;
+}
+
+.clear-input-btn:hover {
+  color: #6b7280;
 }
 
 .suggestions-dropdown {
@@ -287,7 +306,7 @@ body {
 
 /* Map */
 .map-wrapper {
-  height: 500px;
+  height: 600px;
   /* keep relative positioning by default so the map stays inside its card
      on small screens and doesn't overlap other elements */
   position: relative;
@@ -303,7 +322,7 @@ body {
     top: 1.25rem; /* leave space for header/navigation */
     align-self: start; /* ensure it doesn't stretch in grid layouts */
     z-index: 1; /* low z-index so modals/overlays can still appear above */
-    height: 500px;
+    height: 600px;
   }
 }
 
@@ -634,6 +653,23 @@ body {
   color: #3b82f6;
 }
 
+.route-details-expanded {
+  background: #f0f9ff;
+  border: 2px solid #bfdbfe;
+  border-top: none;
+  padding: 1rem;
+  border-radius: 0 0 0.5rem 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.route-details-expanded .route-details {
+  margin: 0;
+}
+
+.route-details-expanded .route-info {
+  padding: 0;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .route-stats {
@@ -641,6 +677,6 @@ body {
   }
   
   .map-wrapper {
-    height: 400px;
+    height: 450px;
   }
 }

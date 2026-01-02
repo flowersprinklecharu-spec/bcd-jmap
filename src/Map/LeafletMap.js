@@ -1,5 +1,5 @@
-import React from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, LayersControl, ZoomControl } from 'react-leaflet';
+import React, { useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, LayersControl, ZoomControl, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
@@ -56,13 +56,101 @@ const createLandmarkIcon = (color = '#f59e0b') => {
   });
 };
 
+// Component to handle map zoom and centering on destination
+const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    console.log('MapZoomHandler triggered:', { destination, landmarksCount: landmarks.length, routesCount: routes.length });
+    
+    if (!destination || landmarks.length === 0) {
+      console.log('Skipping zoom: destination missing or no landmarks');
+      return;
+    }
+
+    // First, try to find the destination in landmarks directly
+    let destinationLandmark = landmarks.find(lm => 
+      lm.name.toLowerCase() === destination.toLowerCase()
+    );
+
+    console.log('Direct landmark search result:', destinationLandmark?.name);
+
+    // If not found in landmarks, search in routes' major stops
+    if (!destinationLandmark) {
+      console.log('Not found in landmarks, searching in routes...');
+      // Search through all routes to find this stop
+      for (let route of routes) {
+        if (route.majorStops && Array.isArray(route.majorStops)) {
+          const foundStop = route.majorStops.find(stop => 
+            stop.toLowerCase() === destination.toLowerCase()
+          );
+          
+          if (foundStop) {
+            console.log('Found stop in route:', route.number, foundStop);
+            // Found the stop in a route, now find it in landmarks
+            destinationLandmark = landmarks.find(lm => 
+              lm.name.toLowerCase() === foundStop.toLowerCase()
+            );
+            console.log('Found landmark for stop:', destinationLandmark?.name);
+            if (destinationLandmark) break; // Found the landmark, exit loop
+          }
+        }
+      }
+    }
+
+    // If we found the destination landmark, zoom to it
+    if (destinationLandmark && destinationLandmark.coordinates) {
+      let pos = null;
+      if (Array.isArray(destinationLandmark.coordinates) && destinationLandmark.coordinates.length === 2) {
+        pos = [destinationLandmark.coordinates[0], destinationLandmark.coordinates[1]];
+      } else if (typeof destinationLandmark.coordinates.latitude === 'number') {
+        pos = [destinationLandmark.coordinates.latitude, destinationLandmark.coordinates.longitude];
+      }
+
+      if (pos) {
+        console.log('Zooming to position:', pos);
+        // Zoom and center with smooth animation
+        map.setView(pos, 16, { animate: true, duration: 1 });
+      }
+    } else {
+      console.log('Destination landmark not found or no coordinates');
+    }
+  }, [destination, landmarks, selectedRoute, routes, map]);
+
+  return null;
+};
+
 const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [] }) => {
-  const center = userLocation ? [userLocation.lat, userLocation.lng] : [10.6760, 122.9500];
+  // Bacolod City bounds (southwest and northeast corners) - tighter bounds
+  const bacolodbounds = [
+    [10.4050, 122.9150], // Southwest corner
+    [10.8900, 123.1100]  // Northeast corner
+  ];
+  
+  const bacolodboundsCenter = [10.6475, 123.0125]; // Center of Bacolod City
+  const center = userLocation ? [userLocation.lat, userLocation.lng] : bacolodboundsCenter;
 
   return (
-    <div className="leaflet-map" style={{ height: '500px', width: '100%' }}>
-      <MapContainer center={center} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }} zoomControl={false}>
+    <div className="leaflet-map" style={{ height: '100%', width: '100%', minHeight: '500px' }}>
+      <MapContainer 
+        center={center} 
+        zoom={12}
+        minZoom={11}
+        maxZoom={18}
+        maxBounds={bacolodbounds}
+        maxBoundsViscosity={1.0}
+        scrollWheelZoom={true}
+        wheelPxPerZoomLevel={60}
+        style={{ height: '100%', width: '100%' }} 
+        zoomControl={false}
+      >
         <ZoomControl position="topright" />
+        <MapZoomHandler 
+          destination={destination}
+          landmarks={landmarks}
+          selectedRoute={selectedRoute}
+          routes={routes}
+        />
         <LayersControl position="topright">
           <LayersControl.BaseLayer checked name="OpenStreetMap">
             <TileLayer

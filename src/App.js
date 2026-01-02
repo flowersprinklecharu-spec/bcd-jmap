@@ -155,7 +155,9 @@ function App() {
     <div className="App">
       <ConnectionStatus />
       <AdminProvider isAdmin={isAdmin} onAdminToggle={handleAdminToggle} isAuthLoading={isAuthLoading}>
-        <Navbar isAdmin={isAdmin} onAdminToggle={handleAdminToggle} onNavigate={handleNavigate} currentPage={currentPage} />
+        {currentPage !== 'admin' && (
+          <Navbar isAdmin={isAdmin} onAdminToggle={handleAdminToggle} onNavigate={handleNavigate} currentPage={currentPage} />
+        )}
         {renderPage()}
       </AdminProvider>
     </div>

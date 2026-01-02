@@ -23,11 +23,18 @@ const MapPinSmallIcon = () => (
   </svg>
 );
 
+const CloseIcon = () => (
+  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
+    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"></path>
+  </svg>
+);
+
 const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
   const [destination, setDestination] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState(null);
   const [showRouteDetails, setShowRouteDetails] = useState(false);
+  const [expandedRouteId, setExpandedRouteId] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [jeepneyRoutes, setJeepneyRoutes] = useState([]);
   const [landmarks, setLandmarks] = useState([]);
@@ -35,6 +42,42 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
   const [suggestedRoutes, setSuggestedRoutes] = useState([]);
   const [highlightedStops, setHighlightedStops] = useState([]);
   const routeDetailsRef = useRef(null);
+
+  // Calculate distance between two coordinates using Haversine formula
+  const calculateDistance = (lat1, lng1, lat2, lng2) => {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  };
+
+  // Get closest point distance from user to a route
+  const getClosestDistanceToRoute = (route) => {
+    if (!userLocation || !route.coordinates) return Infinity;
+
+    let closestDistance = Infinity;
+
+    if (Array.isArray(route.coordinates)) {
+      // If coordinates is a polyline
+      route.coordinates.forEach(coord => {
+        if (Array.isArray(coord) && coord.length === 2) {
+          const distance = calculateDistance(userLocation.lat, userLocation.lng, coord[0], coord[1]);
+          closestDistance = Math.min(closestDistance, distance);
+        }
+      });
+    } else if (route.coordinates.latitude && route.coordinates.longitude) {
+      // If coordinates is a single point
+      closestDistance = calculateDistance(userLocation.lat, userLocation.lng, 
+                                         route.coordinates.latitude, 
+                                         route.coordinates.longitude);
+    }
+
+    return closestDistance;
+  };
 
   // Generate suggestions from routes major stops and landmarks
   const suggestions = useMemo(() => {
@@ -191,18 +234,24 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
     );
 
     // Set suggested routes (use matching routes or random selection)
+    let routesToSuggest = [];
     if (matchingRoutes.length > 0) {
-      setSuggestedRoutes(matchingRoutes);
-      setSelectedRoute(matchingRoutes[0]);
+      // Sort matching routes by distance from user location
+      routesToSuggest = matchingRoutes.sort((a, b) => {
+        const distA = getClosestDistanceToRoute(a);
+        const distB = getClosestDistanceToRoute(b);
+        return distA - distB;
+      });
     } else {
       // Get 3 random routes as suggestions
-      const randomRoutes = [];
       const shuffled = [...jeepneyRoutes].sort(() => Math.random() - 0.5);
-      for (let i = 0; i < Math.min(3, shuffled.length); i++) {
-        randomRoutes.push(shuffled[i]);
-      }
-      setSuggestedRoutes(randomRoutes);
-      setSelectedRoute(randomRoutes[0]);
+      routesToSuggest = shuffled.slice(0, Math.min(3, shuffled.length));
+    }
+
+    setSuggestedRoutes(routesToSuggest);
+    // Auto-select the closest route
+    if (routesToSuggest.length > 0) {
+      setSelectedRoute(routesToSuggest[0]);
     }
 
     // Collect all major stops from matching routes to highlight on map
@@ -221,7 +270,6 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
     }
 
     setHighlightedStops(stopsToHighlight);
-    setShowRouteDetails(true);
   };
 
   const handleFindRoute = () => {
@@ -256,6 +304,21 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
                         placeholder="Search for a stop or landmark..."
                         className="input"
                       />
+                      {destination && (
+                        <button
+                          type="button"
+                          className="clear-input-btn"
+                          onClick={() => {
+                            setDestination('');
+                            setShowDropdown(false);
+                            setExpandedRouteId(null);
+                            setSuggestedRoutes([]);
+                          }}
+                          title="Clear search"
+                        >
+                          <CloseIcon />
+                        </button>
+                      )}
                     </div>
                     
                     {/* Dropdown suggestions */}
@@ -265,7 +328,8 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
                           <div
                             key={index}
                             className="suggestion-item"
-                            onClick={() => {
+                            onMouseDown={(e) => {
+                              e.preventDefault();
                               setDestination(suggestion);
                               setShowDropdown(false);
                               // Auto-trigger find routes
@@ -309,77 +373,70 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
               </div>
             </div>
 
-            {showRouteDetails && selectedRoute && (
-              <div className="card" ref={routeDetailsRef}>
-                <h2 className="card-title">Route Details</h2>
-                
-                <div className="route-details">
-                  <div className="route-details-content">
-                    <div 
-                      className="route-badge"
-                      style={{ backgroundColor: selectedRoute.color || '#2196F3' }}
-                    >
-                      {selectedRoute.number || selectedRoute.id}
-                    </div>
-                    <div className="route-info">
-                      <h3 className="route-name">{selectedRoute.name}</h3>
-                      <p className="route-distance">Complete Route Loop</p>
-
-                      <div className="route-stats">
-                        <div>
-                          <p className="stat-label">Fare:</p>
-                          <p className="stat-value">{selectedRoute.fare || '₱11.00 - ₱15.00'}</p>
-                        </div>
-                        <div>
-                          <p className="stat-label">Travel Time:</p>
-                          <p className="stat-value">{selectedRoute.travelTime || '30-45 mins'}</p>
-                        </div>
-                        <div>
-                          <p className="stat-label">Next Jeepney:</p>
-                          <p className="stat-value">~5 mins</p>
-                        </div>
-                      </div>
-
-                      <div>
-                        <p className="route-desc-label">Route Description:</p>
-                        <p className="route-desc-text">
-                          {selectedRoute.description || 'This route is part of the Bacolod City LPTRP.'}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {suggestedRoutes.length > 0 && (
               <div className="card">
                 <h2 className="card-title">Available Jeepneys to {destination}</h2>
                 
                 <div className="suggested-routes">
                   {suggestedRoutes.map((route) => (
-                    <div 
-                      key={route.id} 
-                      className={`suggested-route-item ${selectedRoute?.id === route.id ? 'active' : ''}`}
-                      onClick={() => {
-                        setSelectedRoute(route);
-                        setShowRouteDetails(true);
-                      }}
-                    >
+                    <div key={route.id}>
                       <div 
-                        className="suggested-route-number"
-                        style={{ backgroundColor: route.color }}
+                        className="suggested-route-item"
+                        onClick={() => {
+                          setSelectedRoute(route);
+                          setExpandedRouteId(expandedRouteId === route.id ? null : route.id);
+                        }}
                       >
-                        {route.number}
+                        <div 
+                          className="suggested-route-number"
+                          style={{ backgroundColor: route.color }}
+                        >
+                          {route.number}
+                        </div>
+                        <div className="suggested-route-info">
+                          <h4 className="suggested-route-name">{route.name}</h4>
+                          <p className="suggested-route-fare">Fare: {route.fare || '₱11.00 - ₱15.00'}</p>
+                          <p className="suggested-route-frequency">
+                            {route.frequency || 'Every 5-10 mins'}
+                          </p>
+                        </div>
+                        <div className="suggested-route-arrow">{expandedRouteId === route.id ? '▼' : '→'}</div>
                       </div>
-                      <div className="suggested-route-info">
-                        <h4 className="suggested-route-name">{route.name}</h4>
-                        <p className="suggested-route-fare">Fare: {route.fare || '₱11.00 - ₱15.00'}</p>
-                        <p className="suggested-route-frequency">
-                          {route.frequency || 'Every 5-10 mins'}
-                        </p>
-                      </div>
-                      <div className="suggested-route-arrow">→</div>
+
+                      {expandedRouteId === route.id && (
+                        <div className="route-details-expanded">
+                          <div className="route-details">
+                            <div className="route-details-content">
+                              <div className="route-info">
+                                <h3 className="route-name">{route.name}</h3>
+                                <p className="route-distance">Complete Route Loop</p>
+
+                                <div className="route-stats">
+                                  <div>
+                                    <p className="stat-label">Fare:</p>
+                                    <p className="stat-value">{route.fare || '₱11.00 - ₱15.00'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="stat-label">Travel Time:</p>
+                                    <p className="stat-value">{route.travelTime || '30-45 mins'}</p>
+                                  </div>
+                                  <div>
+                                    <p className="stat-label">Next Jeepney:</p>
+                                    <p className="stat-value">~5 mins</p>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <p className="route-desc-label">Route Description:</p>
+                                  <p className="route-desc-text">
+                                    {route.description || 'This route is part of the Bacolod City LPTRP.'}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
