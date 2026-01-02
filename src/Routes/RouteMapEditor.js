@@ -12,10 +12,12 @@ L.Icon.Default.mergeOptions({
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
 });
 
-const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute }) => {
+const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocation, onRemoveExistingStop, onEditStopName }) => {
   const [newStops, setNewStops] = useState([]); // Only track new stops being added
   const [newStopName, setNewStopName] = useState('');
   const [selectedStop, setSelectedStop] = useState(null);
+  const [editingStopIndex, setEditingStopIndex] = useState(null);
+  const [editingStopName, setEditingStopName] = useState('');
   const [mapCenter] = useState([10.6750, 122.9600]); // Bacolod city center
   
   // Bacolod city bounds to limit map area
@@ -159,22 +161,155 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute }) => {
 
           <div className="stops-list-section">
             {!isNewRoute && (
-              <div style={{ marginBottom: '15px' }}>
-                <h4>Existing Stops ({(route.majorStops || []).length})</h4>
+              <div style={{ marginBottom: '12px' }}>
+                <h4 style={{ fontSize: '13px', marginBottom: '8px' }}>Existing Stops ({(route.majorStops || []).length})</h4>
                 {(route.majorStops || []).length > 0 && (
                   <div className="existing-stops-list">
                     {route.majorStops.map((stop, index) => {
                       const stopName = typeof stop === 'string' ? stop : stop.name;
                       const hasCoords = typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined;
+                      const isEditing = editingStopIndex === index;
+                      
                       return (
-                        <div key={`existing-${index}`} className="existing-stop-item">
-                          <div className="stop-item-number" style={{ backgroundColor: '#666' }}>
+                        <div key={`existing-${index}`} style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          padding: '8px',
+                          backgroundColor: '#f5f5f5',
+                          borderRadius: '4px',
+                          marginBottom: '6px'
+                        }}>
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '26px',
+                            height: '26px',
+                            backgroundColor: route.color || '#666',
+                            color: '#fff',
+                            borderRadius: '50%',
+                            fontWeight: 'bold',
+                            fontSize: '12px',
+                            flexShrink: 0
+                          }}>
                             {index + 1}
                           </div>
-                          <div className="stop-item-name">
-                            {stopName}
-                            {hasCoords && <span className="coords-badge">📍 {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}</span>}
-                          </div>
+                          {isEditing ? (
+                            <div style={{ display: 'flex', gap: '6px', flex: 1 }}>
+                              <input
+                                type="text"
+                                value={editingStopName}
+                                onChange={(e) => setEditingStopName(e.target.value)}
+                                style={{
+                                  flex: 1,
+                                  padding: '4px 6px',
+                                  fontSize: '12px',
+                                  border: '1px solid #ddd',
+                                  borderRadius: '3px'
+                                }}
+                                autoFocus
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onEditStopName(index, editingStopName);
+                                  setEditingStopIndex(null);
+                                }}
+                                style={{
+                                  padding: '4px 8px',
+                                  backgroundColor: '#4CAF50',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer',
+                                  fontSize: '11px',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingStopIndex(null)}
+                                style={{
+                                  padding: '4px 8px',
+                                  backgroundColor: '#999',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer',
+                                  fontSize: '11px',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '13px', fontWeight: '500', color: '#333' }}>{stopName}</div>
+                                {hasCoords && <div style={{ fontSize: '11px', color: '#666' }}>📍 {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}</div>}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingStopIndex(index);
+                                  setEditingStopName(stopName);
+                                }}
+                                title="Edit Name"
+                                style={{
+                                  padding: '4px 8px',
+                                  backgroundColor: '#2196F3',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                ✎
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onEditStopLocation(index, stopName)}
+                                title="Edit Location"
+                                style={{
+                                  padding: '4px 8px',
+                                  backgroundColor: '#FF9800',
+                                  color: '#fff',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                📍
+                              </button>
+                              {(route.majorStops || []).length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => onRemoveExistingStop(index)}
+                                  title="Remove Stop"
+                                  style={{
+                                    padding: '4px 8px',
+                                    backgroundColor: '#ff4444',
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: '3px',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  🗑️
+                                </button>
+                              )}
+                            </>
+                          )}
                         </div>
                       );
                     })}

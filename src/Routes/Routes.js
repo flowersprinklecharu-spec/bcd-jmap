@@ -73,6 +73,8 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
   const [editingStopIndex, setEditingStopIndex] = useState(null); // For inline stop name editing
   const [editingStopName, setEditingStopName] = useState(''); // Temporary storage for edited stop name
   const [editingStopLocation, setEditingStopLocation] = useState(null); // For location edit modal
+  const [toastMessage, setToastMessage] = useState(''); // For toast notifications
+  const [highlightedStopIndex, setHighlightedStopIndex] = useState(null); // For animation
 
   // Memoized filtered and sorted routes
   const filteredRoutes = useMemo(() => {
@@ -310,6 +312,52 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
     setEditingStopName('');
   }, []);
 
+  // Handler for editing existing stop name in map editor
+  const handleEditStopName = useCallback((index, newName) => {
+    if (newName.trim() && editingRoute) {
+      const updatedStops = [...editingRoute.majorStops];
+      const stop = updatedStops[index];
+      if (typeof stop === 'string') {
+        updatedStops[index] = newName;
+      } else {
+        updatedStops[index] = { ...stop, name: newName };
+      }
+      setEditingRoute(prev => ({
+        ...prev,
+        majorStops: updatedStops
+      }));
+      setToastMessage('Stop name updated! ✓');
+      setTimeout(() => setToastMessage(''), 2000);
+    }
+  }, [editingRoute]);
+
+  // Handler for removing existing stop in map editor
+  const handleRemoveExistingStop = useCallback((index) => {
+    if (editingRoute && editingRoute.majorStops.length > 1) {
+      const updatedStops = editingRoute.majorStops.filter((_, i) => i !== index);
+      setEditingRoute(prev => ({
+        ...prev,
+        majorStops: updatedStops
+      }));
+      setToastMessage('Stop removed! ✓');
+      setTimeout(() => setToastMessage(''), 2000);
+    }
+  }, [editingRoute]);
+
+  // Handler for editing existing stop location in map editor
+  const handleEditStopLocationInMapEditor = useCallback((index, stopName) => {
+    const stop = editingRoute.majorStops[index];
+    const coords = (typeof stop === 'object' && stop.lat !== undefined) 
+      ? [stop.lat, stop.lng]
+      : [10.6750, 122.9500];
+    
+    setEditingStopLocation({
+      index,
+      name: stopName,
+      coordinates: coords
+    });
+  }, [editingRoute]);
+
   return (
     <div className="routes-page">
       {/* Navbar is rendered by App.js */}
@@ -441,6 +489,25 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
           </div>
         )}
       </div>
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          backgroundColor: '#4CAF50',
+          color: '#fff',
+          padding: '12px 20px',
+          borderRadius: '4px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+          zIndex: 3000,
+          fontSize: '14px',
+          fontWeight: '600'
+        }}>
+          {toastMessage}
+        </div>
+      )}
 
       {/* Modal */}
       {showModal && (
@@ -641,19 +708,21 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                     {!showMapEditor && modalMode === 'edit' && editingRoute && Array.isArray(editingRoute.majorStops) && editingRoute.majorStops.length > 0 && (
                       <div className="existing-stops-section">
                         <h5 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: '600', color: '#333' }}>
-                          Existing Stops ({editingRoute.majorStops.length})
+                          Major Stops ({editingRoute.majorStops.length})
                         </h5>
                         <div className="existing-stops-list">
-                          {editingRoute.majorStops.map((stop, index) => (
-                            <div key={index} className="existing-stop-item">
-                              <div style={{
+                          {editingRoute.majorStops.map((stop, index) => {
+                            const stopName = typeof stop === 'string' ? stop : (stop && stop.name) ? stop.name : 'Unknown Stop';
+                            
+                            return (
+                              <div key={index} style={{
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '12px',
-                                flex: 1,
                                 padding: '10px',
                                 backgroundColor: '#f5f5f5',
-                                borderRadius: '6px'
+                                borderRadius: '6px',
+                                marginBottom: '8px'
                               }}>
                                 <div style={{
                                   display: 'flex',
@@ -665,35 +734,87 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                                   color: '#fff',
                                   borderRadius: '50%',
                                   fontWeight: 'bold',
-                                  fontSize: '13px'
+                                  fontSize: '13px',
+                                  flexShrink: 0
                                 }}>
                                   {index + 1}
                                 </div>
                                 <span style={{ flex: 1, color: '#333', fontWeight: '500' }}>
-                                  {typeof stop === 'string' ? stop : (stop && stop.name) ? stop.name : 'Unknown Stop'}
+                                  {stopName}
                                 </span>
-                                {editingRoute.majorStops.length > 1 ? (
-                                  <button
-                                    type="button"
-                                    className="remove-stop-btn"
-                                    onClick={() => removeStop(index)}
-                                    style={{
-                                      padding: '6px 10px',
-                                      backgroundColor: '#ff4444',
-                                      color: '#fff',
-                                      border: 'none',
-                                      borderRadius: '4px',
-                                      cursor: 'pointer',
-                                      fontSize: '13px',
-                                      fontWeight: '600'
-                                    }}
-                                  >
-                                    <DeleteIcon /> Remove
-                                  </button>
-                                ) : null}
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {editingStopLocation && (
+                      <div style={{
+                        position: 'fixed',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                        display: 'flex',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        zIndex: 2000
+                      }}>
+                        <div style={{
+                          backgroundColor: '#fff',
+                          borderRadius: '8px',
+                          padding: '20px',
+                          width: '90%',
+                          maxWidth: '600px',
+                          maxHeight: '90vh',
+                          overflow: 'auto'
+                        }}>
+                          <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>
+                            Edit Location: {editingStopLocation.name}
+                          </h3>
+                          <div style={{ height: '400px', marginBottom: '20px', borderRadius: '6px', overflow: 'hidden' }}>
+                            <LeafletMap
+                              editingStopLocation={editingStopLocation}
+                              onLocationSelect={(coords) => {
+                                // Save the location
+                                const updatedStops = [...editingRoute.majorStops];
+                                const stop = updatedStops[editingStopLocation.index];
+                                updatedStops[editingStopLocation.index] = {
+                                  name: editingStopLocation.name,
+                                  lat: coords[0],
+                                  lng: coords[1]
+                                };
+                                setEditingRoute(prev => ({
+                                  ...prev,
+                                  majorStops: updatedStops
+                                }));
+                                // Show toast and highlight
+                                setToastMessage('Location saved! ✓');
+                                setHighlightedStopIndex(editingStopLocation.index);
+                                setTimeout(() => setToastMessage(''), 2000);
+                                setTimeout(() => setHighlightedStopIndex(null), 1500);
+                                setEditingStopLocation(null);
+                              }}
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setEditingStopLocation(null)}
+                            style={{
+                              padding: '10px 20px',
+                              backgroundColor: '#999',
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '14px',
+                              fontWeight: '600'
+                            }}
+                          >
+                            Cancel
+                          </button>
                         </div>
                       </div>
                     )}
@@ -705,6 +826,9 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                           onSave={handleMapEditorSave}
                           onCancel={() => setShowMapEditor(false)}
                           isNewRoute={modalMode === 'add'}
+                          onEditStopName={handleEditStopName}
+                          onRemoveExistingStop={handleRemoveExistingStop}
+                          onEditStopLocation={handleEditStopLocationInMapEditor}
                         />
                       </div>
                     )}

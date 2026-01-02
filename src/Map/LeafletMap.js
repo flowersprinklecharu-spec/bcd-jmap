@@ -56,6 +56,35 @@ const createLandmarkIcon = (color = '#f59e0b') => {
   });
 };
 
+// Component to handle map click for location selection
+const LocationSelectionHandler = ({ editingStopLocation, onLocationSelect }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!editingStopLocation || !map) return;
+
+    // Set initial center if location has coordinates
+    if (editingStopLocation.coordinates) {
+      map.setView(editingStopLocation.coordinates, 15);
+    }
+
+    const handleMapClick = (e) => {
+      const { lat, lng } = e.latlng;
+      if (onLocationSelect) {
+        onLocationSelect([lat, lng]);
+      }
+    };
+
+    map.on('click', handleMapClick);
+
+    return () => {
+      map.off('click', handleMapClick);
+    };
+  }, [map, editingStopLocation, onLocationSelect]);
+
+  return null;
+};
+
 // Component to handle map zoom and centering on destination
 const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) => {
   const map = useMap();
@@ -120,7 +149,7 @@ const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) 
   return null;
 };
 
-const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [] }) => {
+const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect }) => {
   // Bacolod City bounds (southwest and northeast corners) - tighter bounds
   const bacolodbounds = [
     [10.4050, 122.9150], // Southwest corner
@@ -145,6 +174,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
         zoomControl={false}
       >
         <ZoomControl position="topright" />
+        {editingStopLocation && <LocationSelectionHandler editingStopLocation={editingStopLocation} onLocationSelect={onLocationSelect} />}
         <MapZoomHandler 
           destination={destination}
           landmarks={landmarks}
