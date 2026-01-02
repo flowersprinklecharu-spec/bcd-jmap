@@ -337,25 +337,28 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
         <div className="landmarks-hero">
           <div className="landmarks-header-row">
             <h1 className="landmarks-title">Popular Landmarks in Bacolod</h1>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'center', alignItems: 'center' }}>
+            <div className="search-box" style={{ flex: 1, maxWidth: '800px' }}>
+              <div className="search-icon">
+                <SearchIcon />
+              </div>
+              <input
+                type="text"
+                placeholder="Search landmarks..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="search-input"
+              />
+            </div>
+            
             {isAdmin && (
               <button className="admin-add-btn" onClick={handleAddLandmark}>
                 <AddIcon />
                 Add Landmark
               </button>
             )}
-          </div>
-          
-          <div className="search-box">
-            <div className="search-icon">
-              <SearchIcon />
-            </div>
-            <input
-              type="text"
-              placeholder="Search landmarks..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-            />
           </div>
         </div>
 

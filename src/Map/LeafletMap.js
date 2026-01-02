@@ -3,6 +3,21 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, LayersControl, ZoomCo
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
+// Helper function to safely get coordinates
+const getCoordinates = (coords) => {
+  if (!coords) return null;
+  if (Array.isArray(coords) && coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1])) {
+    return [coords[0], coords[1]];
+  }
+  if (coords.lat !== undefined && coords.lng !== undefined && !isNaN(coords.lat) && !isNaN(coords.lng)) {
+    return [coords.lat, coords.lng];
+  }
+  if (coords.latitude !== undefined && coords.longitude !== undefined && !isNaN(coords.latitude) && !isNaN(coords.longitude)) {
+    return [coords.latitude, coords.longitude];
+  }
+  return null;
+};
+
 // Fix default icon paths
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -65,13 +80,26 @@ const LocationSelectionHandler = ({ editingStopLocation, onLocationSelect }) => 
 
     // Set initial center if location has coordinates
     if (editingStopLocation.coordinates) {
-      map.setView(editingStopLocation.coordinates, 15);
+      const coords = getCoordinates(editingStopLocation.coordinates);
+      if (coords) {
+        try {
+          map.setView(coords, 15);
+        } catch (err) {
+          console.error('Error setting map view:', err);
+        }
+      }
     }
 
     const handleMapClick = (e) => {
-      const { lat, lng } = e.latlng;
-      if (onLocationSelect) {
-        onLocationSelect([lat, lng]);
+      try {
+        const { lat, lng } = e.latlng;
+        if (lat !== undefined && lng !== undefined && !isNaN(lat) && !isNaN(lng)) {
+          if (onLocationSelect) {
+            onLocationSelect([lat, lng]);
+          }
+        }
+      } catch (err) {
+        console.error('Error handling map click:', err);
       }
     };
 
@@ -110,15 +138,17 @@ const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) 
       // Search through all routes to find this stop
       for (let route of routes) {
         if (route.majorStops && Array.isArray(route.majorStops)) {
-          const foundStop = route.majorStops.find(stop => 
-            stop.toLowerCase() === destination.toLowerCase()
-          );
+          const foundStop = route.majorStops.find(stop => {
+            const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+            return stopName.toLowerCase() === destination.toLowerCase();
+          });
           
           if (foundStop) {
-            console.log('Found stop in route:', route.number, foundStop);
+            const foundStopName = typeof foundStop === 'string' ? foundStop : foundStop?.name;
+            console.log('Found stop in route:', route.number, foundStopName);
             // Found the stop in a route, now find it in landmarks
             destinationLandmark = landmarks.find(lm => 
-              lm.name.toLowerCase() === foundStop.toLowerCase()
+              lm.name.toLowerCase() === foundStopName.toLowerCase()
             );
             console.log('Found landmark for stop:', destinationLandmark?.name);
             if (destinationLandmark) break; // Found the landmark, exit loop
@@ -128,18 +158,16 @@ const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) 
     }
 
     // If we found the destination landmark, zoom to it
-    if (destinationLandmark && destinationLandmark.coordinates) {
-      let pos = null;
-      if (Array.isArray(destinationLandmark.coordinates) && destinationLandmark.coordinates.length === 2) {
-        pos = [destinationLandmark.coordinates[0], destinationLandmark.coordinates[1]];
-      } else if (typeof destinationLandmark.coordinates.latitude === 'number') {
-        pos = [destinationLandmark.coordinates.latitude, destinationLandmark.coordinates.longitude];
-      }
-
+    if (destinationLandmark) {
+      const pos = getCoordinates(destinationLandmark.coordinates);
       if (pos) {
-        console.log('Zooming to position:', pos);
-        // Zoom and center with smooth animation
-        map.setView(pos, 16, { animate: true, duration: 1 });
+        try {
+          console.log('Zooming to position:', pos);
+          // Zoom and center with smooth animation
+          map.setView(pos, 16, { animate: true, duration: 1 });
+        } catch (err) {
+          console.error('Error zooming to destination:', err);
+        }
       }
     } else {
       console.log('Destination landmark not found or no coordinates');
@@ -249,18 +277,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
         {landmarks.map(landmark => {
           if (!landmark || !landmark.id) return null;
 
-          let pos = null;
-          if (landmark.coordinates) {
-            if (Array.isArray(landmark.coordinates) && 
-                landmark.coordinates.length === 2 &&
-                typeof landmark.coordinates[0] === 'number' &&
-                typeof landmark.coordinates[1] === 'number') {
-              pos = [landmark.coordinates[0], landmark.coordinates[1]];
-            } else if (typeof landmark.coordinates.latitude === 'number' &&
-                       typeof landmark.coordinates.longitude === 'number') {
-              pos = [landmark.coordinates.latitude, landmark.coordinates.longitude];
-            }
-          }
+          let pos = getCoordinates(landmark.coordinates);
           
           if (!pos) return null;
           
@@ -269,7 +286,10 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
           
           // In focused mode, only show landmarks that are major stops of the selected route
           if (isFocusedMode && (!selectedRoute.majorStops || 
-              !selectedRoute.majorStops.some(stop => stop.toLowerCase() === landmark.name.toLowerCase()))) {
+              !selectedRoute.majorStops.some(stop => {
+                const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+                return stopName.toLowerCase() === landmark.name.toLowerCase();
+              }))) {
             return null;
           }
           
@@ -295,20 +315,16 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
         {/* Render major stops for highlighted routes (search mode) and selected route (focused mode) */}
         {((highlightedStops.length > 0) || (selectedRoute && highlightedStops.length === 0)) && selectedRoute && selectedRoute.majorStops && (
           selectedRoute.majorStops.map((stop, index) => {
+            const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
             const matchingLandmark = landmarks.find(lm => 
-              lm.name.toLowerCase() === stop.toLowerCase()
+              lm.name.toLowerCase() === stopName.toLowerCase()
             );
 
-            if (matchingLandmark && matchingLandmark.coordinates) {
-              let pos = null;
-              if (Array.isArray(matchingLandmark.coordinates) && matchingLandmark.coordinates.length === 2) {
-                pos = [matchingLandmark.coordinates[0], matchingLandmark.coordinates[1]];
-              } else if (typeof matchingLandmark.coordinates.latitude === 'number') {
-                pos = [matchingLandmark.coordinates.latitude, matchingLandmark.coordinates.longitude];
-              }
+            if (matchingLandmark) {
+              const pos = getCoordinates(matchingLandmark.coordinates);
 
               if (pos) {
-                const isDestination = destination.toLowerCase() === stop.toLowerCase();
+                const isDestination = destination.toLowerCase() === stopName.toLowerCase();
                 return (
                   <Marker 
                     key={`stop-${index}`}
@@ -316,7 +332,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
                     icon={createStopIcon(isDestination ? '#ef4444' : selectedRoute.color)}
                   >
                     <Popup>
-                      <strong>{stop}</strong>
+                      <strong>{stopName}</strong>
                       <br />
                       {isDestination && '⭐ Your Destination'}
                     </Popup>

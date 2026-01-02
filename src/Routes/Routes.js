@@ -89,38 +89,56 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
 
   // Memoized modal handlers
   const openModal = useCallback((route, mode = 'view') => {
-    setSelectedRoute(route);
-    setModalMode(mode);
-    if (mode === 'edit') {
-      // Ensure majorStops and coordinates exist
-      setEditingRoute({ 
-        ...route,
-        majorStops: route.majorStops || [],
-        coordinates: route.coordinates || []
-      });
-      setShowMapEditor(false); // Start with form view for edit mode
-    } else if (mode === 'add') {
-      // Auto-assign next route number and color
-      const nextNumber = getNextRouteNumber(routes);
-      const autoColor = getRouteColor(nextNumber);
+    try {
+      if (!route && mode === 'view') {
+        console.warn('Cannot open modal: no route provided for view mode');
+        return;
+      }
       
-      console.log('📝 Auto-assigning route - Next number:', nextNumber, 'Color:', autoColor, 'Existing routes:', routes);
+      // Normalize route object to ensure all properties exist
+      const normalizedRoute = route ? {
+        id: route.id,
+        number: route.number || 'N/A',
+        name: route.name || 'Unknown Route',
+        description: route.description || '',
+        fare: route.fare || 'N/A',
+        color: route.color || '#FF5722',
+        operatingHours: route.operatingHours || 'N/A',
+        frequency: route.frequency || 'N/A',
+        majorStops: Array.isArray(route.majorStops) ? route.majorStops : [],
+        coordinates: Array.isArray(route.coordinates) ? route.coordinates : []
+      } : null;
       
-      setEditingRoute({
-        id: Date.now(),
-        number: nextNumber.toString(),
-        name: '',
-        description: '',
-        fare: '₱11.00 - ₱15.00',
-        color: autoColor,
-        operatingHours: '5:00 AM - 9:00 PM',
-        frequency: 'Every 5-10 mins',
-        majorStops: [],
-        coordinates: [] // Array of [lat, lng] points for route path
-      });
-      setShowMapEditor(true); // Immediately open map editor for add mode
+      setSelectedRoute(normalizedRoute);
+      setModalMode(mode);
+      if (mode === 'edit' && normalizedRoute) {
+        setEditingRoute(normalizedRoute);
+        setShowMapEditor(false); // Start with form view for edit mode
+      } else if (mode === 'add') {
+        // Auto-assign next route number and color
+        const nextNumber = getNextRouteNumber(routes);
+        const autoColor = getRouteColor(nextNumber);
+        
+        console.log('📝 Auto-assigning route - Next number:', nextNumber, 'Color:', autoColor, 'Existing routes:', routes);
+        
+        setEditingRoute({
+          id: Date.now(),
+          number: nextNumber.toString(),
+          name: '',
+          description: '',
+          fare: '₱11.00 - ₱15.00',
+          color: autoColor,
+          operatingHours: '5:00 AM - 9:00 PM',
+          frequency: 'Every 5-10 mins',
+          majorStops: [],
+          coordinates: [] // Array of [lat, lng] points for route path
+        });
+        setShowMapEditor(true); // Immediately open map editor for add mode
+      }
+      setShowModal(true);
+    } catch (err) {
+      console.error('Error opening modal:', err);
     }
-    setShowModal(true);
   }, [routes]);
 
   const closeModal = useCallback(() => {
@@ -233,6 +251,11 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
       return () => clearTimeout(timer);
     }
   }, [editingRoute, modalMode]);
+
+  // Clear highlighted route when search query changes to prevent stale state
+  useEffect(() => {
+    setHighlightedRoute(null);
+  }, [searchQuery]);
 
   // Warn before closing/refreshing if there are unsaved changes
   useEffect(() => {
@@ -365,26 +388,34 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
         <div className="routes-hero">
           <div className="routes-header-row">
             <h1 className="routes-title">Jeepney Routes in Bacolod City</h1>
+          </div>
+          <p className="routes-subtitle">Local Public Transport Route Plan (LPTRP) - New and Rationalized Routes</p>
+          
+          <div style={{ display: 'flex', gap: '0.8rem', justifyContent: 'center', alignItems: 'center' }}>
+            <div className="search-box" style={{ flex: 1, maxWidth: '800px' }}>
+              <div className="search-icon" style={{ pointerEvents: 'none' }}>
+                <SearchIcon />
+              </div>
+              <input
+                type="text"
+                placeholder="Search routes, landmarks, or destinations..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="search-input"
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setSearchQuery('');
+                  }
+                }}
+              />
+            </div>
+            
             {isAdmin && (
               <button className="admin-add-btn" onClick={handleAddRoute}>
                 <AddIcon />
                 Add New Route
               </button>
             )}
-          </div>
-          <p className="routes-subtitle">Local Public Transport Route Plan (LPTRP) - New and Rationalized Routes</p>
-          
-          <div className="search-box">
-            <div className="search-icon">
-              <SearchIcon />
-            </div>
-            <input
-              type="text"
-              placeholder="Search routes, landmarks, or destinations..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="search-input"
-            />
           </div>
         </div>
 
@@ -432,13 +463,14 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
         )}
 
         <div className="routes-grid">
-          {filteredRoutes.map((route) => (
-            <div 
-              key={route.id} 
-              className={`route-card ${highlightedRoute?.id === route.id ? 'route-card-active' : ''}`}
-              onClick={() => setHighlightedRoute(route)}
-              style={{ cursor: 'pointer' }}
-            >
+          {filteredRoutes.length > 0 ? (
+            filteredRoutes.map((route) => (
+              <div 
+                key={route.id} 
+                className={`route-card ${highlightedRoute?.id === route.id ? 'route-card-active' : ''}`}
+                onClick={() => setHighlightedRoute(route)}
+                style={{ cursor: 'pointer' }}
+              >
               <div className="route-header">
                 <div 
                   className="route-number"
@@ -480,15 +512,13 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                 </div>
               </div>
             </div>
-          ))}
+            ))
+          ) : (
+            <div style={{ gridColumn: '1 / -1', padding: '2rem', textAlign: 'center' }}>
+              <p style={{ color: '#6b7280', fontSize: '1.1rem' }}>No routes found matching your search.</p>
+            </div>
+          )}
         </div>
-
-        {filteredRoutes.length === 0 && (
-          <div className="no-results">
-            <p>No routes found matching your search.</p>
-          </div>
-        )}
-      </div>
 
       {/* Toast Notification */}
       {toastMessage && (
@@ -510,7 +540,7 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
       )}
 
       {/* Modal */}
-      {showModal && (
+      {showModal && (selectedRoute || editingRoute) && (
         <div className={`modal-overlay ${showMapEditor ? 'map-editor-active' : ''}`} onClick={safeCloseModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <button className="modal-close" onClick={safeCloseModal}>
@@ -522,12 +552,12 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                 <div className="modal-header">
                   <div 
                     className="modal-route-number"
-                    style={{ backgroundColor: selectedRoute.color }}
+                    style={{ backgroundColor: selectedRoute?.color || '#FF5722' }}
                   >
-                    {selectedRoute.number}
+                    {selectedRoute?.number || 'N/A'}
                   </div>
                   <div>
-                    <h2 className="modal-title">{selectedRoute.name}</h2>
+                    <h2 className="modal-title">{selectedRoute?.name || 'Route'}</h2>
                     <p className="modal-subtitle">Complete Route Loop</p>
                   </div>
                 </div>
@@ -535,37 +565,44 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                 <div className="modal-info-grid">
                   <div className="info-box">
                     <h4 className="info-label">Fare</h4>
-                    <p className="info-value">{selectedRoute.fare}</p>
+                    <p className="info-value">{selectedRoute?.fare || 'N/A'}</p>
                   </div>
                   <div className="info-box">
                     <h4 className="info-label">Operating Hours</h4>
-                    <p className="info-value">{selectedRoute.operatingHours}</p>
+                    <p className="info-value">{selectedRoute?.operatingHours || 'N/A'}</p>
                   </div>
                   <div className="info-box">
                     <h4 className="info-label">Frequency</h4>
-                    <p className="info-value">{selectedRoute.frequency}</p>
+                    <p className="info-value">{selectedRoute?.frequency || 'N/A'}</p>
                   </div>
                 </div>
 
                 <div className="modal-section">
                   <h3 className="section-title">Route Description</h3>
-                  <p className="section-text">{selectedRoute.description}</p>
+                  <p className="section-text">{selectedRoute?.description || 'No description'}</p>
                 </div>
 
                 <div className="modal-section">
                   <h3 className="section-title">Major Stops</h3>
                   <div className="stops-list">
-                    {selectedRoute.majorStops.map((stop, index) => (
-                      <div key={index} className="stop-item">
-                        <div 
-                          className="stop-number"
-                          style={{ backgroundColor: selectedRoute.color }}
-                        >
-                          {index + 1}
-                        </div>
-                        <span className="stop-name">{stop}</span>
-                      </div>
-                    ))}
+                    {selectedRoute.majorStops && Array.isArray(selectedRoute.majorStops) && selectedRoute.majorStops.length > 0 ? (
+                      selectedRoute.majorStops.map((stop, index) => {
+                        const stopName = typeof stop === 'string' ? stop : (stop?.name || 'Unknown Stop');
+                        return (
+                          <div key={index} className="stop-item">
+                            <div 
+                              className="stop-number"
+                              style={{ backgroundColor: selectedRoute?.color || '#FF5722' }}
+                            >
+                              {index + 1}
+                            </div>
+                            <span className="stop-name">{stopName}</span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p style={{ color: '#999', fontStyle: 'italic' }}>No major stops defined</p>
+                    )}
                   </div>
                 </div>
 
@@ -586,7 +623,7 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                 {modalMode === 'add' && (
                   <div style={{
                     padding: '12px 24px',
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    background: 'linear-gradient(135deg, #4FA89E 0%, #D4B896 100%)',
                     borderBottom: '1px solid #e0e0e0',
                     display: 'flex',
                     alignItems: 'center',
@@ -608,7 +645,7 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                         display: 'inline-flex',
                         alignItems: 'center',
                         padding: '4px 12px',
-                        backgroundColor: editingRoute.color,
+                        background: 'linear-gradient(135deg, #4FA89E 0%, #D4B896 100%)',
                         color: '#fff',
                         borderRadius: '4px',
                         fontWeight: 'bold'
@@ -856,6 +893,7 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
           </div>
         </div>
       )}
+    </div>
     </div>
   );
 };
