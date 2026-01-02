@@ -236,11 +236,11 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
         <div className="main-grid">
           <div className="main-content">
             <div className="card">
-              <h2 className="card-title">Find Your Route</h2>
+              <h2 className="card-title">Welcome to JeepneyMap!</h2>
               
               <div className="form-grid">
                 <div>
-                  <label className="form-label">Destination</label>
+                  <label className="form-label">Find Your Stop</label>
                   <div className="destination-input-wrapper">
                     <div className="input-with-icon">
                       <SearchIcon />
