@@ -129,6 +129,7 @@ body {
   font-weight: bold;
   color: #1f2937;
   margin-bottom: 1.5rem;
+  text-align: left;
 }
 
 /* Form */
@@ -147,8 +148,8 @@ body {
 
 .form-label {
   display: block;
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: 2.625rem;
+  font-weight: 600;
   color: #374151;
   margin-bottom: 0.5rem;
 }
@@ -466,31 +467,68 @@ body {
 .announcements {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.5rem;
 }
 
 .announcement-card {
-  background: #fce7f3;
+  width: 100%;
   border-left: 4px solid #9c0743;
   border-radius: 0.5rem;
-  padding: 1rem;
+  padding: 0.75rem;
+  transition: all 0.2s;
+}
+
+.announcement-card.important {
+  background: #fce7f3;
+  border-left-color: #ec4899;
+}
+
+.announcement-card.general {
+  background: white;
+  border-left-color: #e5e7eb;
+}
+
+.announcement-card:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
 .announcement-title {
   font-weight: bold;
   color: #1f2937;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.95rem;
 }
 
 .announcement-desc {
-  font-size: 0.675rem;
+  font-size: 0.625rem;
   color: #374151;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
+  line-height: 1.3;
+}
+
+.announcement-badge {
+  display: inline-block;
+  background: #dc2626;
+  color: white;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.375rem;
+  font-size: 0.525rem;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .announcement-date {
   font-size: 0.675rem;
   color: #6b7280;
+  margin: 0;
+}
+
+.announcement-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 0.25rem;
 }
 
 .link-btn {

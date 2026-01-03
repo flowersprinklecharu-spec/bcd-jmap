@@ -12,7 +12,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
 });
 
-const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocation, onRemoveExistingStop, onEditStopName }) => {
+const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocation, onRemoveExistingStop, onEditStopName, onSaveCoordinates }) => {
   const [newStops, setNewStops] = useState([]); // Only track new stops being added
   const [newStopName, setNewStopName] = useState('');
   const [selectedStop, setSelectedStop] = useState(null);
@@ -26,7 +26,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     [10.7300, 123.0100]  // Northeast corner
   ];
 
-  // Create custom icon
+  // Create custom icon for new stops
   const createStopIcon = (index, isSelected) => {
     return L.divIcon({
       html: `<div class="stop-marker ${isSelected ? 'selected' : ''}">
@@ -35,6 +35,18 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
       className: 'custom-marker',
       iconSize: [32, 32],
       iconAnchor: [16, 32],
+    });
+  };
+
+  // Create custom icon for existing stops (gray, smaller)
+  const createExistingStopIcon = (index) => {
+    return L.divIcon({
+      html: `<div class="existing-stop-marker">
+        <div class="existing-stop-marker-label">${index + 1}</div>
+      </div>`,
+      className: 'existing-marker',
+      iconSize: [28, 28],
+      iconAnchor: [14, 28],
     });
   };
 
@@ -78,7 +90,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     setNewStops(reorderedStops);
   };
 
-  // Handle save
+  // Handle save for adding new stops to majorStops
   const handleSave = () => {
     if (newStops.length < 1) {
       alert('Please add at least 1 new stop');
@@ -87,11 +99,21 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     onSave(newStops);
   };
 
+  // Handle save for route coordinates (polyline path)
+  const handleSaveCoordinates = () => {
+    if (newStops.length < 2) {
+      alert('Please add at least 2 waypoints to create a route path');
+      return;
+    }
+    const coordinates = newStops.map(stop => [stop.lat, stop.lng]);
+    onSaveCoordinates(coordinates);
+  };
+
   return (
     <div className="route-map-editor">
       <div className="editor-container">
         <div className="editor-map-section">
-          <h3>Add new stops to this route</h3>
+          <h3>Edit Route - Click on map to add waypoints</h3>
           <div style={{ height: '400px', width: '100%', border: '2px solid #ddd' }}>
             <MapContainer 
               center={mapCenter} 
@@ -107,6 +129,32 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 attribution='&copy; OpenStreetMap contributors'
               />
+              
+              {/* Render existing stops as gray markers */}
+              {!isNewRoute && (route.majorStops || []).map((stop, index) => {
+                const stopName = typeof stop === 'string' ? stop : stop.name;
+                const hasCoords = typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined;
+                
+                // If stop has coordinates, show it on map
+                if (hasCoords) {
+                  return (
+                    <Marker
+                      key={`existing-${index}`}
+                      position={[stop.lat, stop.lng]}
+                      icon={createExistingStopIcon(index)}
+                    >
+                      <Popup>
+                        <div className="marker-popup">
+                          <strong>{stopName}</strong>
+                          <p>Existing Stop #{index + 1}</p>
+                          <p className="coordinates">{stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  );
+                }
+                return null;
+              })}
               
               {/* Draw polyline between new stops */}
               {newStops.length > 1 && (
@@ -143,7 +191,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
 
         <div className="editor-controls-section">
           <div className="add-stop-form">
-            <h4>Add Stop</h4>
+            <h4>Add Point</h4>
             <input
               type="text"
               placeholder="Stop name (e.g., Lacson & Araneta)"
@@ -152,11 +200,11 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
               className="stop-name-input"
               onKeyPress={(e) => {
                 if (e.key === 'Enter' && newStopName.trim()) {
-                  alert('Click on the map to place this stop');
+                  alert('Click on the map to place this point');
                 }
               }}
             />
-            <p className="help-text">Enter stop name, then click on map to pin location</p>
+            <p className="help-text">Enter name, click map to add. Use 'Save Route Path' or 'Add Stops' buttons below.</p>
           </div>
 
           <div className="stops-list-section">
@@ -381,6 +429,15 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
               onClick={onCancel}
             >
               Cancel
+            </button>
+            <button
+              type="button"
+              className="save-btn"
+              onClick={handleSaveCoordinates}
+              disabled={newStops.length < 2}
+              title="Save waypoints as route coordinates (polyline path)"
+            >
+              Save Route Path ({newStops.length})
             </button>
             <button
               type="button"

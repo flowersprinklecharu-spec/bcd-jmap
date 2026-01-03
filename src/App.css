@@ -1,6 +1,4 @@
 .App {
-  text-align: center;
-  position: relative;
 }
 
 .admin-mode-indicator {
@@ -15,7 +13,7 @@
   font-size: 0.875rem;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
   animation: slideIn 0.3s ease-out;
-  z-index: 999;
+  z-index: 9999;
 }
 
 @keyframes slideIn {

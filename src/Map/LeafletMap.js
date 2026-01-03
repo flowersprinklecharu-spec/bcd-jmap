@@ -114,6 +114,56 @@ const LocationSelectionHandler = ({ editingStopLocation, onLocationSelect }) => 
 };
 
 // Component to handle map zoom and centering on destination
+const DestinationMarkerHandler = ({ selectedDestination, userLocation }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!selectedDestination || !userLocation) return;
+
+    // Clear existing custom markers
+    map.eachLayer((layer) => {
+      if (layer instanceof L.Marker && layer.isCustomMarker) {
+        map.removeLayer(layer);
+      }
+    });
+
+    // Add user location marker (blue)
+    const userMarker = L.circleMarker([userLocation.lat, userLocation.lng], {
+      radius: 8,
+      fillColor: '#3b82f6',
+      color: '#1e40af',
+      weight: 2,
+      opacity: 1,
+      fillOpacity: 0.8
+    }).addTo(map);
+    userMarker.isCustomMarker = true;
+    userMarker.bindPopup('Your Location');
+
+    // Add destination marker (red)
+    const destMarker = L.circleMarker([selectedDestination[0], selectedDestination[1]], {
+      radius: 8,
+      fillColor: '#ef4444',
+      color: '#7f1d1d',
+      weight: 2,
+      opacity: 1,
+      fillOpacity: 0.8
+    }).addTo(map);
+    destMarker.isCustomMarker = true;
+    destMarker.bindPopup('Destination');
+
+    // Calculate bounds to fit both markers
+    const bounds = L.latLngBounds(
+      [userLocation.lat, userLocation.lng],
+      [selectedDestination[0], selectedDestination[1]]
+    );
+
+    // Smooth zoom animation to fit both markers
+    map.fitBounds(bounds, { padding: [100, 100], animate: true, duration: 1 });
+  }, [selectedDestination, userLocation, map]);
+
+  return null;
+};
+
 const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) => {
   const map = useMap();
 
@@ -177,7 +227,7 @@ const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) 
   return null;
 };
 
-const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect }) => {
+const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true }) => {
   // Bacolod City bounds (southwest and northeast corners) - tighter bounds
   const bacolodbounds = [
     [10.4050, 122.9150], // Southwest corner
@@ -208,6 +258,10 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
           landmarks={landmarks}
           selectedRoute={selectedRoute}
           routes={routes}
+        />
+        <DestinationMarkerHandler 
+          selectedDestination={selectedDestination}
+          userLocation={userLocation}
         />
         <LayersControl position="topright">
           <LayersControl.BaseLayer checked name="OpenStreetMap">
@@ -274,7 +328,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
           );
         })}
 
-        {landmarks.map(landmark => {
+        {showLandmarks && landmarks.map(landmark => {
           if (!landmark || !landmark.id) return null;
 
           let pos = getCoordinates(landmark.coordinates);

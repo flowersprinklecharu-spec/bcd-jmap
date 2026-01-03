@@ -113,7 +113,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       setModalMode(mode);
       if (mode === 'edit' && normalizedRoute) {
         setEditingRoute(normalizedRoute);
-        setShowMapEditor(false); // Start with form view for edit mode
+        setShowMapEditor(false); // Start with form, user clicks "Edit with Map" to see map
       } else if (mode === 'add') {
         // Auto-assign next route number and color
         const nextNumber = getNextRouteNumber(routes);
@@ -131,9 +131,9 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
           operatingHours: '5:00 AM - 9:00 PM',
           frequency: 'Every 5-10 mins',
           majorStops: [],
-          coordinates: [] // Array of [lat, lng] points for route path
+          coordinates: []
         });
-        setShowMapEditor(true); // Immediately open map editor for add mode
+        setShowMapEditor(false); // Start with form for add mode
       }
       setShowModal(true);
     } catch (err) {
@@ -299,6 +299,17 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     setShowMapEditor(false);
     alert(`✅ Added ${uniqueNewStops.length} new stops!`);
   }, [editingRoute]);
+
+  const handleSaveRouteCoordinates = useCallback((coordinates) => {
+    // Save coordinates as the route path (polyline)
+    setEditingRoute(prev => ({
+      ...prev,
+      coordinates: coordinates
+    }));
+    
+    setShowMapEditor(false);
+    alert(`✅ Saved route path with ${coordinates.length} waypoints!`);
+  }, []);
 
   const handleStopChange = useCallback((index, value) => {
     setEditingRoute(prev => {
@@ -617,7 +628,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
               </>
             )}
 
-            {(modalMode === 'add' || modalMode === 'edit') && editingRoute && (
+            {(modalMode === 'add' || modalMode === 'edit') && editingRoute && !showMapEditor && (
               <>
                 {console.log('🔍 Rendering form - editingRoute:', editingRoute, 'modalMode:', modalMode)}
                 <div className="modal-header">
@@ -626,7 +637,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                   </h2>
                 </div>
 
-                {/* Auto-Assignment Preview for Add Mode */}
+                <div className="modal-content-wrapper">
                 {modalMode === 'add' && (
                   <div style={{
                     padding: '12px 24px',
@@ -742,8 +753,17 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                         type="button"
                         className="map-editor-toggle-btn"
                         onClick={() => setShowMapEditor(!showMapEditor)}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: '#3b82f6',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: '600'
+                        }}
                       >
-                        <MapIcon />
                         {showMapEditor ? 'Hide Map' : 'Edit with Map'}
                       </button>
                     </div>
@@ -861,40 +881,72 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                         </div>
                       </div>
                     )}
-                    
-                    {showMapEditor && (
-                      <div className="map-editor-container">
-                        <RouteMapEditor
-                          route={editingRoute}
-                          onSave={handleMapEditorSave}
-                          onCancel={() => setShowMapEditor(false)}
-                          isNewRoute={modalMode === 'add'}
-                          onEditStopName={handleEditStopName}
-                          onRemoveExistingStop={handleRemoveExistingStop}
-                          onEditStopLocation={handleEditStopLocationInMapEditor}
-                        />
-                      </div>
-                    )}
+                  </div>
                   </div>
 
-                  <div className="form-actions">
-                    <button
-                      type="button"
-                      className="cancel-btn"
-                      onClick={safeCloseModal}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className="save-btn"
-                      onClick={handleSaveRoute}
-                    >
-                      {modalMode === 'add' ? 'Add Route' : 'Save Changes'}
-                    </button>
-                  </div>
                 </div>
               </>
+            )}
+
+            {/* Map-only view when showMapEditor is true */}
+            {showMapEditor && editingRoute && (
+              <>
+                <div className="modal-header">
+                  <h2 className="modal-title">
+                    {modalMode === 'add' ? 'Add New Route - Edit Path' : 'Edit Route - Edit Path'}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setShowMapEditor(false)}
+                    style={{
+                      marginLeft: 'auto',
+                      padding: '6px 12px',
+                      backgroundColor: '#6b7280',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '600'
+                    }}
+                  >
+                    Back to Form
+                  </button>
+                </div>
+
+                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <RouteMapEditor
+                    route={editingRoute}
+                    onSave={handleMapEditorSave}
+                    onSaveCoordinates={handleSaveRouteCoordinates}
+                    onCancel={() => setShowMapEditor(false)}
+                    isNewRoute={modalMode === 'add'}
+                    onEditStopName={handleEditStopName}
+                    onRemoveExistingStop={handleRemoveExistingStop}
+                    onEditStopLocation={handleEditStopLocationInMapEditor}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Form Action Buttons - positioned at bottom */}
+            {(modalMode === 'add' || modalMode === 'edit') && editingRoute && (
+              <div className="form-actions-bottom">
+                <button
+                  type="button"
+                  className="cancel-btn"
+                  onClick={safeCloseModal}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="save-btn"
+                  onClick={handleSaveRoute}
+                >
+                  {modalMode === 'add' ? 'Add Route' : 'Save Changes'}
+                </button>
+              </div>
             )}
           </div>
         </div>

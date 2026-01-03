@@ -29,7 +29,7 @@ const CloseIcon = () => (
   </svg>
 );
 
-const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
+const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [destination, setDestination] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState(null);
@@ -41,6 +41,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
   const [announcements, setAnnouncements] = useState([]);
   const [suggestedRoutes, setSuggestedRoutes] = useState([]);
   const [highlightedStops, setHighlightedStops] = useState([]);
+  const [selectedDestinationCoords, setSelectedDestinationCoords] = useState(null);
   const routeDetailsRef = useRef(null);
 
   // Calculate distance between two coordinates using Haversine formula
@@ -136,6 +137,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
       )
       .sort();
 
+    console.log('📋 Suggestions generated:', { totalStops: stops.size, filtered: filtered.length, destination, jeepneyRoutesCount: jeepneyRoutes.length, landmarksCount: landmarks.length });
     return destination.trim() === '' ? [] : filtered;
   }, [destination, jeepneyRoutes, landmarks]);
 
@@ -215,7 +217,12 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
           id: doc.id,
           ...normalizeDocData(doc)
         }));
-        data.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        // Parse dates properly for consistent sorting (handles both ISO and formatted dates)
+        data.sort((a, b) => {
+          const dateA = a.date ? new Date(a.date).getTime() : 0;
+          const dateB = b.date ? new Date(b.date).getTime() : 0;
+          return dateB - dateA; // Newest first
+        });
         setAnnouncements(data);
       }, (err) => {
         console.error('Announcements listener error', err);
@@ -297,7 +304,58 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
     setHighlightedStops(stopsToHighlight);
   };
 
+
   const handleFindRoute = () => {
+    if (!destination) return;
+
+    console.log('🔍 handleFindRoute called with:', destination);
+
+    // Inline coordinate finding logic
+    let coords = null;
+
+    // First, try to find in landmarks
+    const landmark = landmarks.find(lm => 
+      lm.name.toLowerCase() === destination.toLowerCase()
+    );
+    if (landmark && landmark.coordinates) {
+      console.log('✅ Found in landmarks:', landmark.coordinates);
+      coords = landmark.coordinates;
+    }
+
+    // If not found in landmarks, search in routes
+    if (!coords) {
+      console.log('❌ Not in landmarks, searching in routes...');
+      for (let route of jeepneyRoutes) {
+        if (route.majorStops && route.majorStops.some(stop => {
+          const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+          const match = stopName.toLowerCase() === destination.toLowerCase();
+          if (match) {
+            console.log('🎯 Found stop in route:', route.number, stopName);
+          }
+          return match;
+        })) {
+          // Found in route, use route's first coordinate
+          console.log('📊 Route coordinates:', route.coordinates);
+          if (route.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
+            console.log('✅ Using route coordinate:', route.coordinates[0]);
+            coords = route.coordinates[0];
+          } else {
+            console.log('❌ Route has no valid coordinates');
+          }
+          break; // Exit after finding first matching route
+        }
+      }
+    }
+
+    // Set destination coordinates if found
+    if (coords) {
+      console.log('📍 Setting selected destination coords:', coords);
+      setSelectedDestinationCoords(coords);
+    } else {
+      console.log('❌ No coordinates found for destination');
+    }
+
+    // Trigger route finding
     triggerFindRoute(destination);
   };
 
@@ -357,6 +415,29 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
                               e.preventDefault();
                               setDestination(suggestion);
                               setShowDropdown(false);
+                              // Get coordinates and set for map zoom
+                              let coords = null;
+                              const landmark = landmarks.find(lm => 
+                                lm.name.toLowerCase() === suggestion.toLowerCase()
+                              );
+                              if (landmark && landmark.coordinates) {
+                                coords = landmark.coordinates;
+                              } else {
+                                for (let route of jeepneyRoutes) {
+                                  if (route.majorStops && route.majorStops.some(stop => {
+                                    const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+                                    return stopName.toLowerCase() === suggestion.toLowerCase();
+                                  })) {
+                                    if (route.coordinates?.length > 0) {
+                                      coords = route.coordinates[0];
+                                    }
+                                    break;
+                                  }
+                                }
+                              }
+                              if (coords) {
+                                setSelectedDestinationCoords(coords);
+                              }
                               // Auto-trigger find routes
                               setTimeout(() => {
                                 triggerFindRoute(suggestion);
@@ -393,6 +474,8 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
                   highlightedStops={highlightedStops}
                   suggestedRoutes={suggestedRoutes}
                   destination={destination}
+                  selectedDestination={selectedDestinationCoords}
+                  showLandmarks={!selectedDestinationCoords}
                   onRouteClick={(route) => { setSelectedRoute(route); setShowRouteDetails(true); }}
                 />
               </div>
@@ -475,11 +558,24 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
               
               <div className="announcements">
                 {announcements.length > 0 ? (
-                  announcements.slice(0, 5).map(announcement => (
-                    <div key={announcement.id} className="announcement-card">
+                  announcements
+                    .sort((a, b) => {
+                      // Important notices first
+                      if (a.isImportant && !b.isImportant) return -1;
+                      if (!a.isImportant && b.isImportant) return 1;
+                      return 0;
+                    })
+                    .slice(0, 3)
+                    .map(announcement => (
+                    <div key={announcement.id} className={`announcement-card ${announcement.isImportant ? 'important' : 'general'}`}>
                       <h3 className="announcement-title">{announcement.title}</h3>
                       <p className="announcement-desc">{announcement.description}</p>
-                      <p className="announcement-date">Posted: {announcement.date}</p>
+                      <div className="announcement-footer">
+                        <p className="announcement-date">Posted: {announcement.date}</p>
+                        {announcement.isImportant && (
+                          <span className="announcement-badge">Important Notice</span>
+                        )}
+                      </div>
                     </div>
                   ))
                 ) : (

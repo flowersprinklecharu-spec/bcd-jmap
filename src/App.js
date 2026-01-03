@@ -9,6 +9,7 @@ import AdminLoginPage from './Login/AdminLoginPage';
 import ConnectionStatus from './components/ConnectionStatus';
 import { auth, isAdminByEmail } from './firebase';
 import { AdminProvider } from './contexts/AdminContext';
+import './App.css';
 import './Home/home.css';
 import './Navbar/navbar.css';
 import './Routes/routes.css';
@@ -123,15 +124,17 @@ function App() {
     setPageParams(params);
   };
 
-  const AdminModeIndicator = () => (
-    <>
-      {isAdmin && isAdminEditing && (
+  const AdminModeIndicator = () => {
+    console.log('🔍 AdminModeIndicator render:', { isAdmin, isAdminEditing });
+    if (isAdmin && isAdminEditing) {
+      return (
         <div className="admin-mode-indicator">
           Admin Mode Active
         </div>
-      )}
-    </>
-  );
+      );
+    }
+    return null;
+  };
 
   const renderPage = () => {
     const handleRequestLogin = () => setCurrentPage('admin');
@@ -170,8 +173,8 @@ function App() {
           <Navbar isAdmin={isAdmin} onAdminToggle={handleAdminToggle} onNavigate={handleNavigate} currentPage={currentPage} />
         )}
         {renderPage()}
-        <AdminModeIndicator />
       </AdminProvider>
+      <AdminModeIndicator />
     </div>
   );
 }

@@ -49,7 +49,12 @@ const Announcements = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => 
           id: doc.id,
           ...normalizeDocData(doc)
         }));
-        setAnnouncements(data.sort((a,b) => (b.date || '').localeCompare(a.date || '')));
+        // Parse dates properly for consistent sorting (handles both ISO and formatted dates)
+        setAnnouncements(data.sort((a, b) => {
+          const dateA = a.date ? new Date(a.date).getTime() : 0;
+          const dateB = b.date ? new Date(b.date).getTime() : 0;
+          return dateB - dateA; // Newest first
+        }));
       }, (err) => {
         console.error('Announcements listener error', err);
       });
@@ -146,13 +151,14 @@ const Announcements = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => 
     setEditingAnnouncement({ ...editingAnnouncement, [field]: value });
   };
 
-  // Clear unsaved changes flag when modal closes
+  // Clear unsaved changes flag when modal closes and notify parent about editing state
   useEffect(() => {
     if (!showModal) {
       setHasUnsavedChanges(false);
     }
-    // Notify parent about editing state
+    // Notify parent about editing state (for Admin Mode indicator)
     if (onAdminEditingChange) {
+      console.log('📢 Announcements notifying admin editing state:', showModal);
       onAdminEditingChange(showModal);
     }
   }, [showModal, onAdminEditingChange]);
