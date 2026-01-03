@@ -79,6 +79,30 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
     return closestDistance;
   };
 
+  // Memoized nearby landmarks with distance calculation
+  const nearbyLandmarks = useMemo(() => {
+    if (!userLocation || landmarks.length === 0) return [];
+    
+    const landmarksWithDistance = landmarks.map(landmark => {
+      if (!landmark.coordinates || !Array.isArray(landmark.coordinates) || landmark.coordinates.length !== 2) {
+        return { ...landmark, distance: Infinity };
+      }
+      const distance = calculateDistance(
+        userLocation.lat,
+        userLocation.lng,
+        landmark.coordinates[0],
+        landmark.coordinates[1]
+      );
+      return { ...landmark, distance };
+    });
+    
+    // Filter to within 5 km and sort by distance
+    return landmarksWithDistance
+      .filter(l => l.distance <= 5 && l.distance !== Infinity)
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 5);
+  }, [userLocation, landmarks]);
+
   // Generate suggestions from routes major stops and landmarks
   const suggestions = useMemo(() => {
     const stops = new Set();
@@ -187,16 +211,12 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
       const announcementsCol = collection(db, 'announcements');
       const announcementsQuery = query(announcementsCol);
       const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
-        const anns = snapshot.docs.map(d => {
-          const nd = normalizeDocData(d) || {};
-          return { id: nd.id ?? d.id, ...nd };
-        });
-        anns.sort((a, b) => {
-          const ta = a.date ? Date.parse(a.date) : 0;
-          const tb = b.date ? Date.parse(b.date) : 0;
-          return tb - ta;
-        });
-        setAnnouncements(anns);
+        const data = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...normalizeDocData(doc)
+        }));
+        data.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        setAnnouncements(data);
       }, (err) => {
         console.error('Announcements listener error', err);
       });
@@ -476,20 +496,20 @@ const JeepneyMap = ({ onNavigate, onRequestLogin }) => {
               <h2 className="card-title">Nearby Landmarks</h2>
               
               <div className="landmarks">
-                {landmarks.length > 0 ? (
-                  landmarks.slice(0, 5).map(landmark => (
+                {nearbyLandmarks.length > 0 ? (
+                  nearbyLandmarks.map(landmark => (
                     <div key={landmark.id} className="landmark-item">
                       <div className="landmark-icon">
                         <MapPinSmallIcon />
                       </div>
                       <div>
                         <h3 className="landmark-name">{landmark.name}</h3>
-                        <p className="landmark-distance">{landmark.category}</p>
+                        <p className="landmark-distance">{landmark.category} • {landmark.distance.toFixed(1)} km away</p>
                       </div>
                     </div>
                   ))
                 ) : (
-                  <p style={{ color: '#6b7280', textAlign: 'center', padding: '1rem' }}>No landmarks yet</p>
+                  <p style={{ color: '#6b7280', textAlign: 'center', padding: '1rem' }}>No nearby landmarks within 5 km</p>
                 )}
               </div>
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 // Navbar moved to App.js (top-level)
-import { saveAnnouncement, normalizeDocData } from '../firebase';
+import { saveAnnouncement, deleteAnnouncement, normalizeDocData } from '../firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AdminContext } from '../contexts/AdminContext';
@@ -18,9 +18,21 @@ const CloseIcon = () => (
   </svg>
 );
 
+const EditIcon = () => (
+  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
+    <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"></path>
+  </svg>
+);
+
+const DeleteIcon = () => (
+  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
+    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"></path>
+  </svg>
+);
+
 // Announcements are loaded live from Firestore (collection: 'announcements')
 
-const Announcements = ({ onNavigate, onRequestLogin }) => {
+const Announcements = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const { isAdmin } = useContext(AdminContext);
   const [announcements, setAnnouncements] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -33,7 +45,10 @@ const Announcements = ({ onNavigate, onRequestLogin }) => {
       const col = collection(db, 'announcements');
       const q = query(col);
       const unsub = onSnapshot(q, (snapshot) => {
-        const data = snapshot.docs.map(doc => normalizeDocData(doc));
+        const data = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...normalizeDocData(doc)
+        }));
         setAnnouncements(data.sort((a,b) => (b.date || '').localeCompare(a.date || '')));
       }, (err) => {
         console.error('Announcements listener error', err);
@@ -86,6 +101,25 @@ const Announcements = ({ onNavigate, onRequestLogin }) => {
     setShowModal(true);
   };
 
+  const handleEditAnnouncement = (announcement) => {
+    setEditMode('edit');
+    setEditingAnnouncement(announcement);
+    setShowModal(true);
+  };
+
+  const handleDeleteAnnouncement = async (id) => {
+    if (window.confirm('Are you sure you want to delete this announcement?')) {
+      try {
+        await deleteAnnouncement(id);
+        setAnnouncements(announcements.filter(a => a.id !== id));
+        alert('✅ Announcement deleted successfully!');
+      } catch (err) {
+        console.error(err);
+        alert('❌ Failed to delete announcement: ' + err.message);
+      }
+    }
+  };
+
   const handleSaveAnnouncement = async () => {
     try {
       if (editMode === 'add') {
@@ -117,7 +151,11 @@ const Announcements = ({ onNavigate, onRequestLogin }) => {
     if (!showModal) {
       setHasUnsavedChanges(false);
     }
-  }, [showModal]);
+    // Notify parent about editing state
+    if (onAdminEditingChange) {
+      onAdminEditingChange(showModal);
+    }
+  }, [showModal, onAdminEditingChange]);
 
   // Safe close that warns about unsaved changes
   const safeCloseModal = () => {
@@ -164,7 +202,24 @@ const Announcements = ({ onNavigate, onRequestLogin }) => {
                 </div>
                 <div className="announcement-meta">
                   <div className="announcement-date">{announcement.date}</div>
-                  {/* Admin edit/delete removed from public UI */}
+                  {isAdmin && (
+                    <div className="announcement-actions">
+                      <button
+                        className="announcement-action-btn edit-btn"
+                        onClick={() => handleEditAnnouncement(announcement)}
+                        title="Edit announcement"
+                      >
+                        <EditIcon />
+                      </button>
+                      <button
+                        className="announcement-action-btn delete-btn"
+                        onClick={() => handleDeleteAnnouncement(announcement.id)}
+                        title="Delete announcement"
+                      >
+                        <DeleteIcon />
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -204,17 +259,6 @@ const Announcements = ({ onNavigate, onRequestLogin }) => {
               </div>
 
               <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Category</label>
-                  <select
-                    value={editingAnnouncement.category}
-                    onChange={(e) => handleInputChange('category', e.target.value)}
-                    className="form-input"
-                  >
-                    <option value="General">General</option>
-                    <option value="Important Notice">Important Notice</option>
-                  </select>
-                </div>
                 <div className="form-group">
                   <label className="form-label">Date</label>
                   <input

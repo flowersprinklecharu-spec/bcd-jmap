@@ -131,7 +131,7 @@ const categoryEmojis = {
   'Other': '📍'
 };
 
-const Landmarks = ({ onNavigate, onRequestLogin }) => {
+const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const { isAdmin } = useContext(AdminContext);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -226,6 +226,13 @@ const Landmarks = ({ onNavigate, onRequestLogin }) => {
       setSuggestedRoutes(suggestedJeepneys);
     }
   }, [selectedLandmark, userLocation, routes]);
+
+  // Notify parent about editing state
+  useEffect(() => {
+    if (onAdminEditingChange) {
+      onAdminEditingChange(showEditModal || showMapEditor);
+    }
+  }, [showEditModal, showMapEditor, onAdminEditingChange]);
 
   const filteredLandmarks = landmarks.filter(landmark => {
     const matchesSearch = (landmark.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||

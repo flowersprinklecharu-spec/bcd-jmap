@@ -30,6 +30,7 @@ function App() {
   
   // Initialize isAdmin - will be set after checking Firebase Auth and Firestore
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdminEditing, setIsAdminEditing] = useState(false);
   
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
@@ -122,12 +123,23 @@ function App() {
     setPageParams(params);
   };
 
+  const AdminModeIndicator = () => (
+    <>
+      {isAdmin && isAdminEditing && (
+        <div className="admin-mode-indicator">
+          Admin Mode Active
+        </div>
+      )}
+    </>
+  );
+
   const renderPage = () => {
     const handleRequestLogin = () => setCurrentPage('admin');
 
     const sharedProps = {
       onNavigate: handleNavigate,
-      onRequestLogin: handleRequestLogin
+      onRequestLogin: handleRequestLogin,
+      onAdminEditingChange: setIsAdminEditing
     };
 
     switch(currentPage) {
@@ -158,6 +170,7 @@ function App() {
           <Navbar isAdmin={isAdmin} onAdminToggle={handleAdminToggle} onNavigate={handleNavigate} currentPage={currentPage} />
         )}
         {renderPage()}
+        <AdminModeIndicator />
       </AdminProvider>
     </div>
   );

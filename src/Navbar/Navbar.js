@@ -170,14 +170,8 @@ const Navbar = ({ isAdmin, onAdminToggle, onNavigate, currentPage }) => {
 
 
 
-      {/* Admin Badge */}
-      {isAdmin && (
-        <div className="navbar-admin-badge">
-          Admin Mode Active
-        </div>
-      )}
-    </header>
-  );
-};
-
-export default Navbar;
+      </header>
+    );
+  };
+  
+  export default Navbar;

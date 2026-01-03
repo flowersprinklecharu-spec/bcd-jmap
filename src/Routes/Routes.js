@@ -58,7 +58,7 @@ const sortRoutesByNumber = (routes) => {
 // Initial routes data - Empty by default (routes will be added manually via admin interface)
 const initialRoutesData = [];
 
-const Routes = ({ onNavigate, onRequestLogin }) => {
+const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const { isAdmin } = useContext(AdminContext);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRoute, setSelectedRoute] = useState(null);
@@ -270,6 +270,13 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges, editingRoute, modalMode]);
+
+  // Notify parent about editing state
+  useEffect(() => {
+    if (onAdminEditingChange) {
+      onAdminEditingChange(showModal || showMapEditor);
+    }
+  }, [showModal, showMapEditor, onAdminEditingChange]);
 
   const handleInputChange = useCallback((field, value) => {
     setEditingRoute(prev => ({ ...prev, [field]: value }));
@@ -640,7 +647,6 @@ const Routes = ({ onNavigate, onRequestLogin }) => {
                       fontWeight: '600',
                       color: '#333'
                     }}>
-                      <span>Auto-assigned:</span>
                       <div style={{
                         display: 'inline-flex',
                         alignItems: 'center',
