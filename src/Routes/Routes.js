@@ -79,6 +79,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [editingStopLocation, setEditingStopLocation] = useState(null); // For location edit modal
   const [toastMessage, setToastMessage] = useState(''); // For toast notifications
   const [highlightedStopIndex, setHighlightedStopIndex] = useState(null); // For animation
+  const [confirmCloseModal, setConfirmCloseModal] = useState(false); // Confirmation for closing modal
 
   // Memoized filtered and sorted routes
   const filteredRoutes = useMemo(() => {
@@ -311,8 +312,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       coordinates: coordinates
     }));
     
-    setShowMapEditor(false);
-    alert(`✅ Saved route path with ${coordinates.length} waypoints!`);
+    alert(`✅ Path saved! Route line created between ${coordinates.length} waypoints. You can add more stops or click "Add Route" to finalize.`);
   }, []);
 
   const handleStopChange = useCallback((index, value) => {
@@ -938,7 +938,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                 <button
                   type="button"
                   className="cancel-btn"
-                  onClick={safeCloseModal}
+                  onClick={() => setConfirmCloseModal(true)}
                 >
                   Cancel
                 </button>
@@ -949,6 +949,77 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                 >
                   {modalMode === 'add' ? 'Add Route' : 'Save Changes'}
                 </button>
+              </div>
+            )}
+
+            {/* Confirmation Dialog for Closing Modal */}
+            {confirmCloseModal && (
+              <div style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 2000
+              }}>
+                <div style={{
+                  backgroundColor: '#fff',
+                  borderRadius: '8px',
+                  padding: '2rem',
+                  maxWidth: '400px',
+                  width: '90%',
+                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)'
+                }}>
+                  <h3 style={{ margin: '0 0 1rem 0', color: '#1f2937' }}>Discard Changes?</h3>
+                  <p style={{ margin: '0 0 1.5rem 0', color: '#6b7280', fontSize: '14px' }}>
+                    Are you sure you want to close without saving? All unsaved changes will be lost.
+                  </p>
+                  <div style={{
+                    display: 'flex',
+                    gap: '1rem',
+                    justifyContent: 'flex-end'
+                  }}>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmCloseModal(false)}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: '#e5e7eb',
+                        color: '#1f2937',
+                        border: 'none',
+                        borderRadius: '0.375rem',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        fontSize: '14px'
+                      }}
+                    >
+                      Keep Editing
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmCloseModal(false);
+                        safeCloseModal();
+                      }}
+                      style={{
+                        padding: '0.5rem 1rem',
+                        backgroundColor: '#ef4444',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '0.375rem',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                        fontSize: '14px'
+                      }}
+                    >
+                      Discard Changes
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>

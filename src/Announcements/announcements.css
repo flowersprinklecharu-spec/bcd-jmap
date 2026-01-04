@@ -92,7 +92,7 @@
 
 .announcement-date {
   font-size: 1rem;
-  color: #6b7280;
+  color: #1f2937;
   font-weight: 500;
   white-space: nowrap;
   flex-shrink: 0;
@@ -145,8 +145,8 @@
 
 .announcement-badge {
   display: inline-block;
-  background: #dc2626;
-  color: white;
+  background: transparent;
+  color: #dc2626;
   padding: 0.175rem 0.525rem;
   border-radius: 0.375rem;
   font-size: 0.6125rem;
@@ -361,8 +361,8 @@
 
 .announcement-date {
   display: inline-block;
-  background: #c40808;
-  color: white;
+  background: transparent;
+  color: #1f2937;
   padding: 0.25rem 0.75rem;
   border-radius: 0.375rem;
   font-size: 0.875rem;
@@ -370,8 +370,8 @@
 }
 
 .announcement-date {
-  font-size: 0.5rem;
-  color: #f5f6f8;
+  font-size: 0.875rem;
+  color: #1f2937;
   font-weight: 500;
   white-space: nowrap;
   flex-shrink: 0;

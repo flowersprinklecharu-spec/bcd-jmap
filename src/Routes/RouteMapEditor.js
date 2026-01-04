@@ -20,6 +20,8 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
   const [editingStopName, setEditingStopName] = useState('');
   const [mapCenter] = useState([10.6750, 122.9600]); // Bacolod city center
   const [confirmDelete, setConfirmDelete] = useState(null); // {type: 'existing'|'new', index: number, id?: string, name?: string}
+  const [tempPin, setTempPin] = useState(null); // {lat, lng, name} - temporary pin before adding to stops
+  const [confirmCancel, setConfirmCancel] = useState(false); // Confirmation for closing modal
   
   // Bacolod city bounds to limit map area
   const bacolodBounds = [
@@ -52,22 +54,19 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
   };
 
   // Add stop by clicking map
+  // Handle map click - only create a temporary pin, not auto-add to stops
   const handleMapClick = (e) => {
     if (!newStopName.trim()) {
       alert('Please enter a stop name first');
       return;
     }
     
-    const newStop = {
-      id: Date.now(),
+    // Create temporary pin instead of auto-adding to stops
+    setTempPin({
       name: newStopName,
       lat: e.latlng.lat,
-      lng: e.latlng.lng,
-      timestamp: new Date().toLocaleString()
-    };
-    
-    setNewStops([...newStops, newStop]);
-    setNewStopName('');
+      lng: e.latlng.lng
+    });
   };
 
   // Map events component
@@ -104,6 +103,32 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     setNewStops(reorderedStops);
   };
 
+  // Handle clearing the input and temporary pin
+  const handleClearPin = () => {
+    setNewStopName('');
+    setTempPin(null);
+  };
+
+  // Handle converting temporary pin to actual stop
+  const handleAddPinAsStop = () => {
+    if (!tempPin) {
+      alert('Please pin a location on the map first');
+      return;
+    }
+    
+    const newStop = {
+      id: Date.now(),
+      name: tempPin.name,
+      lat: tempPin.lat,
+      lng: tempPin.lng,
+      timestamp: new Date().toLocaleString()
+    };
+    
+    setNewStops([...newStops, newStop]);
+    setNewStopName('');
+    setTempPin(null);
+  };
+
   // Handle save for adding new stops to majorStops
   const handleSave = () => {
     if (newStops.length < 1) {
@@ -112,15 +137,20 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     }
     onSave(newStops);
   };
-
   // Handle save for route coordinates (polyline path)
   const handleSaveCoordinates = () => {
     if (newStops.length < 2) {
       alert('Please add at least 2 waypoints to create a route path');
       return;
     }
-    const coordinates = newStops.map(stop => [stop.lat, stop.lng]);
+    // Convert to array of objects instead of nested arrays for Firestore compatibility
+    const coordinates = newStops.map(stop => ({
+      lat: stop.lat,
+      lng: stop.lng
+    }));
     onSaveCoordinates(coordinates);
+    // Clear the input box after saving path
+    setNewStopName('');
   };
 
   return (
@@ -198,6 +228,26 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                   </Popup>
                 </Marker>
               ))}
+              
+              {/* Render temporary pin marker */}
+              {tempPin && (
+                <Marker
+                  position={[tempPin.lat, tempPin.lng]}
+                  icon={L.icon({
+                    iconUrl: 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDI0IDI0Ij48Y2lyY2xlIGN4PSIxMiIgY3k9IjEyIiByPSI4IiBmaWxsPSIjRkZBNTAwIi8+PHRleHQgeD0iMTIiIHk9IjE1IiBmaWxsPSJ3aGl0ZSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC13ZWlnaHQ9ImJvbGQiPi4uPC90ZXh0Pjwvc3ZnPg==',
+                    iconSize: [32, 32],
+                    iconAnchor: [16, 32],
+                  })}
+                >
+                  <Popup>
+                    <div className="marker-popup">
+                      <strong>{tempPin.name}</strong>
+                      <p>Temporary Pin (click Add Stops to confirm)</p>
+                      <p className="coordinates">{tempPin.lat.toFixed(4)}, {tempPin.lng.toFixed(4)}</p>
+                    </div>
+                  </Popup>
+                </Marker>
+              )}
             </MapContainer>
           </div>
         </div>
@@ -217,7 +267,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                 }
               }}
             />
-            <p className="help-text">Enter name, click map to add. Use 'Save Route Path' or 'Add Stops' buttons below.</p>
+            <p className="help-text">Enter name, then click on the map to add the point. Use 'Save Path' or 'Add Stops' buttons to finalize.</p>
           </div>
 
           <div className="stops-list-section">
@@ -350,25 +400,23 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                               >
                                 📍
                               </button>
-                              {(route.majorStops || []).length > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => setConfirmDelete({ type: 'existing', index, name: stopName })}
-                                  title="Remove Stop"
-                                  style={{
-                                    padding: '4px 8px',
-                                    backgroundColor: '#fee2e2',
-                                    color: '#991b1b',
-                                    border: 'none',
-                                    borderRadius: '3px',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    fontWeight: '600'
-                                  }}
-                                >
-                                  🗑️
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDelete({ type: 'existing', index, name: stopName })}
+                                title="Remove Stop"
+                                style={{
+                                  padding: '4px 8px',
+                                  backgroundColor: '#fee2e2',
+                                  color: '#991b1b',
+                                  border: 'none',
+                                  borderRadius: '3px',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  fontWeight: '600'
+                                }}
+                              >
+                                🗑️
+                              </button>
                             </>
                           )}
                         </div>
@@ -379,37 +427,35 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
               </div>
             )}
 
-            {/* Map Editor Action Buttons - Below Existing Stops */}
-            {!isNewRoute && (route.majorStops || []).length > 0 && (
-              <div className="map-editor-actions-compact">
-                <button
-                  type="button"
-                  className="compact-cancel-btn"
-                  onClick={() => {}}
-                  title="Back to form without saving"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="compact-save-btn"
-                  onClick={handleSaveCoordinates}
-                  disabled={false}
-                  title="Save route path"
-                >
-                  Save Path
-                </button>
-                <button
-                  type="button"
-                  className="compact-save-btn"
-                  onClick={handleSave}
-                  disabled={false}
-                  title="Add new stops"
-                >
-                  Add Stops
-                </button>
-              </div>
-            )}
+            {/* Map Editor Action Buttons - Always visible */}
+            <div className="map-editor-actions-compact">
+              <button
+                type="button"
+                className="compact-cancel-btn"
+                onClick={handleClearPin}
+                title="Clear input and remove pinned location"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="compact-save-btn"
+                onClick={handleSaveCoordinates}
+                disabled={false}
+                title="Save route path"
+              >
+                Save Path
+              </button>
+              <button
+                type="button"
+                className="compact-save-btn"
+                onClick={handleAddPinAsStop}
+                disabled={false}
+                title="Add pinned location as a stop"
+              >
+                Add Stops
+              </button>
+            </div>
             
             <h4>New Stops ({newStops.length})</h4>
             {newStops.length === 0 ? (
