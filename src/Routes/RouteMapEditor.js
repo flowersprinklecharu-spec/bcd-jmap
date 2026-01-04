@@ -203,9 +203,9 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
               {newStops.length > 1 && (
                 <Polyline 
                   positions={newStops.map(s => [s.lat, s.lng])} 
-                  color={route.color || '#FF5722'}
-                  weight={3}
-                  opacity={0.7}
+                  color="#0084FF"
+                  weight={4}
+                  opacity={0.8}
                 />
               )}
               
