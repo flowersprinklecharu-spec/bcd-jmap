@@ -269,6 +269,24 @@
   transition: all 0.2s;
 }
 
+.admin-edit-btn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.admin-edit-btn:hover {
+  background: #fde68a;
+}
+
+.admin-delete-btn {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.admin-delete-btn:hover {
+  background: #fecaca;
+}
+
 /* No Results */
 .no-results {
   text-align: center;

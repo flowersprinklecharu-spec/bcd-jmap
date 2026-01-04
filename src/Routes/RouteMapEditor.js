@@ -19,6 +19,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
   const [editingStopIndex, setEditingStopIndex] = useState(null);
   const [editingStopName, setEditingStopName] = useState('');
   const [mapCenter] = useState([10.6750, 122.9600]); // Bacolod city center
+  const [confirmDelete, setConfirmDelete] = useState(null); // {type: 'existing'|'new', index: number, id?: string, name?: string}
   
   // Bacolod city bounds to limit map area
   const bacolodBounds = [
@@ -81,6 +82,19 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
   const removeStop = (id) => {
     setNewStops(newStops.filter(stop => stop.id !== id));
     setSelectedStop(null);
+    setConfirmDelete(null);
+  };
+
+  // Handle delete confirmation
+  const handleConfirmDelete = () => {
+    if (!confirmDelete) return;
+    
+    if (confirmDelete.type === 'new') {
+      removeStop(confirmDelete.id);
+    } else if (confirmDelete.type === 'existing') {
+      onRemoveExistingStop(confirmDelete.index);
+      setConfirmDelete(null);
+    }
   };
 
   // Reorder stops (only new stops can be reordered)
@@ -308,8 +322,8 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                                 title="Edit Name"
                                 style={{
                                   padding: '4px 8px',
-                                  backgroundColor: '#2196F3',
-                                  color: '#fff',
+                                  backgroundColor: '#fef3c7',
+                                  color: '#92400e',
                                   border: 'none',
                                   borderRadius: '3px',
                                   cursor: 'pointer',
@@ -325,8 +339,8 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                                 title="Edit Location"
                                 style={{
                                   padding: '4px 8px',
-                                  backgroundColor: '#FF9800',
-                                  color: '#fff',
+                                  backgroundColor: '#fef3c7',
+                                  color: '#92400e',
                                   border: 'none',
                                   borderRadius: '3px',
                                   cursor: 'pointer',
@@ -339,12 +353,12 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                               {(route.majorStops || []).length > 1 && (
                                 <button
                                   type="button"
-                                  onClick={() => onRemoveExistingStop(index)}
+                                  onClick={() => setConfirmDelete({ type: 'existing', index, name: stopName })}
                                   title="Remove Stop"
                                   style={{
                                     padding: '4px 8px',
-                                    backgroundColor: '#ff4444',
-                                    color: '#fff',
+                                    backgroundColor: '#fee2e2',
+                                    color: '#991b1b',
                                     border: 'none',
                                     borderRadius: '3px',
                                     cursor: 'pointer',
@@ -441,7 +455,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                       <button
                         type="button"
                         className="delete-btn"
-                        onClick={() => removeStop(stop.id)}
+                        onClick={() => setConfirmDelete({ type: 'new', id: stop.id, name: stop.name })}
                         title="Delete stop"
                       >
                         ✕
@@ -454,6 +468,74 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: '#fff',
+            borderRadius: '8px',
+            padding: '2rem',
+            maxWidth: '400px',
+            width: '90%',
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)'
+          }}>
+            <h3 style={{ margin: '0 0 1rem 0', color: '#1f2937' }}>Confirm Delete</h3>
+            <p style={{ margin: '0 0 1.5rem 0', color: '#6b7280', fontSize: '14px' }}>
+              Are you sure you want to delete <strong>"{confirmDelete.name}"</strong>? This action cannot be undone.
+            </p>
+            <div style={{
+              display: 'flex',
+              gap: '1rem',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(null)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#e5e7eb',
+                  color: '#1f2937',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#ef4444',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px'
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
