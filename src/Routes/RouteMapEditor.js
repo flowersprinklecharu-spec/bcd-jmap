@@ -113,8 +113,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     <div className="route-map-editor">
       <div className="editor-container">
         <div className="editor-map-section">
-          <h3>Edit Route - Click on map to add waypoints</h3>
-          <div style={{ height: '400px', width: '100%', border: '2px solid #ddd' }}>
+          <div style={{ flex: 1, width: '100%', border: '2px solid #ddd', borderRadius: '6px', overflow: 'hidden', minHeight: 0, display: 'flex' }}>
             <MapContainer 
               center={mapCenter} 
               zoom={13} 
@@ -365,6 +364,38 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                 )}
               </div>
             )}
+
+            {/* Map Editor Action Buttons - Below Existing Stops */}
+            {!isNewRoute && (route.majorStops || []).length > 0 && (
+              <div className="map-editor-actions-compact">
+                <button
+                  type="button"
+                  className="compact-cancel-btn"
+                  onClick={() => {}}
+                  title="Back to form without saving"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="compact-save-btn"
+                  onClick={handleSaveCoordinates}
+                  disabled={false}
+                  title="Save route path"
+                >
+                  Save Path
+                </button>
+                <button
+                  type="button"
+                  className="compact-save-btn"
+                  onClick={handleSave}
+                  disabled={false}
+                  title="Add new stops"
+                >
+                  Add Stops
+                </button>
+              </div>
+            )}
             
             <h4>New Stops ({newStops.length})</h4>
             {newStops.length === 0 ? (
@@ -420,33 +451,6 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                 ))}
               </div>
             )}
-          </div>
-
-          <div className="editor-actions">
-            <button
-              type="button"
-              className="cancel-btn"
-              onClick={onCancel}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="save-btn"
-              onClick={handleSaveCoordinates}
-              disabled={newStops.length < 2}
-              title="Save waypoints as route coordinates (polyline path)"
-            >
-              Save Route Path ({newStops.length})
-            </button>
-            <button
-              type="button"
-              className="save-btn"
-              onClick={handleSave}
-              disabled={newStops.length < 1}
-            >
-              Add Stops ({newStops.length})
-            </button>
           </div>
         </div>
       </div>

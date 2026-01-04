@@ -601,7 +601,6 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                 </div>
 
                 <div className="modal-section">
-                  <h3 className="section-title">Major Stops</h3>
                   <div className="stops-list">
                     {selectedRoute.majorStops && Array.isArray(selectedRoute.majorStops) && selectedRoute.majorStops.length > 0 ? (
                       selectedRoute.majorStops.map((stop, index) => {
