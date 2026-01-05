@@ -4,6 +4,18 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { boundsToLeafletFormat, addPaddingToBounds } from '../utils/boundsCalculator';
 
+// Helper function to calculate distance between two coordinates (Haversine formula)
+const calculateDistance = (lat1, lng1, lat2, lng2) => {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng/2) * Math.sin(dLng/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+};
+
 // Helper function to safely get coordinates
 const getCoordinates = (coords) => {
   if (!coords) return null;
@@ -274,7 +286,7 @@ const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) 
   return null;
 };
 
-const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true, zoomBounds = null }) => {
+const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true, zoomBounds = null, searchType = '' }) => {
   // Bacolod City bounds (southwest and northeast corners) - tighter bounds
   const bacolodbounds = [
     [10.4050, 122.9150], // Southwest corner
@@ -383,8 +395,40 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
           
           if (!pos) return null;
           
-          // Check if we're in focused mode
-          const isFocusedMode = selectedRoute && highlightedStops.length === 0;
+          // Handle system search: only show the exact destination landmark
+          if (searchType === 'system' && destination) {
+            if (landmark.name.toLowerCase() !== destination.toLowerCase()) {
+              return null; // Only show the searched destination
+            }
+          }
+          
+          // Handle geocoded search: only show major stops within 5km of the geocoded location
+          if (searchType === 'geocoded' && selectedRoute && selectedRoute.majorStops && selectedDestination) {
+            // Check if landmark is a major stop of the selected route
+            const isInSelectedRoute = selectedRoute.majorStops.some(stop => {
+              const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+              return stopName.toLowerCase() === landmark.name.toLowerCase();
+            });
+            
+            if (!isInSelectedRoute) {
+              return null; // Not a major stop of selected route
+            }
+            
+            // Check if landmark is within 5km of the geocoded destination
+            const distance = calculateDistance(
+              selectedDestination[0],
+              selectedDestination[1],
+              pos[0],
+              pos[1]
+            );
+            
+            if (distance > 5) {
+              return null; // Beyond 5km range
+            }
+          }
+          
+          // Check if we're in focused mode (no search type set, just browsing)
+          const isFocusedMode = selectedRoute && !searchType && highlightedStops.length === 0;
           
           // In focused mode, only show landmarks that are major stops of the selected route
           if (isFocusedMode && (!selectedRoute.majorStops || 
@@ -418,29 +462,60 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
         {((highlightedStops.length > 0) || (selectedRoute && highlightedStops.length === 0)) && selectedRoute && selectedRoute.majorStops && (
           selectedRoute.majorStops.map((stop, index) => {
             const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-            const matchingLandmark = landmarks.find(lm => 
-              lm.name.toLowerCase() === stopName.toLowerCase()
-            );
-
-            if (matchingLandmark) {
-              const pos = getCoordinates(matchingLandmark.coordinates);
-
-              if (pos) {
-                const isDestination = destination.toLowerCase() === stopName.toLowerCase();
-                return (
-                  <Marker 
-                    key={`stop-${index}`}
-                    position={pos}
-                    icon={createStopIcon(isDestination ? '#ef4444' : selectedRoute.color)}
-                  >
-                    <Popup>
-                      <strong>{stopName}</strong>
-                      <br />
-                      {isDestination && '⭐ Your Destination'}
-                    </Popup>
-                  </Marker>
-                );
+            
+            // First, try to get coordinates from the stop object itself
+            let pos = null;
+            if (typeof stop === 'object' && stop?.lat !== undefined && stop?.lng !== undefined) {
+              pos = [stop.lat, stop.lng];
+            } else {
+              // Fall back to finding a matching landmark
+              const matchingLandmark = landmarks.find(lm => 
+                lm.name.toLowerCase() === stopName.toLowerCase()
+              );
+              if (matchingLandmark) {
+                pos = getCoordinates(matchingLandmark.coordinates);
               }
+            }
+
+            // Only render if we have coordinates from either source
+            if (pos) {
+              // Apply search filters to major stops
+              
+              // System search: only show the exact destination
+              if (searchType === 'system' && destination) {
+                if (stopName.toLowerCase() !== destination.toLowerCase()) {
+                  return null; // Skip this stop
+                }
+              }
+              
+              // Geocoded search: only show stops within 5km of the geocoded location
+              if (searchType === 'geocoded' && selectedDestination) {
+                const distance = calculateDistance(
+                  selectedDestination[0],
+                  selectedDestination[1],
+                  pos[0],
+                  pos[1]
+                );
+                
+                if (distance > 5) {
+                  return null; // Skip stops beyond 5km
+                }
+              }
+              
+              const isDestination = destination.toLowerCase() === stopName.toLowerCase();
+              return (
+                <Marker 
+                  key={`stop-${index}`}
+                  position={pos}
+                  icon={createStopIcon(isDestination ? '#ef4444' : selectedRoute.color)}
+                >
+                  <Popup>
+                    <strong>{stopName}</strong>
+                    <br />
+                    {isDestination && '⭐ Your Destination'}
+                  </Popup>
+                </Marker>
+              );
             }
 
             return null;

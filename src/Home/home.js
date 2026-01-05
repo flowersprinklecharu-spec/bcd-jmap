@@ -46,6 +46,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [highlightedStops, setHighlightedStops] = useState([]);
   const [selectedDestinationCoords, setSelectedDestinationCoords] = useState(null);
   const [zoomBounds, setZoomBounds] = useState(null); // For smart zoom on route selection
+  const [searchType, setSearchType] = useState(''); // 'system' for found in DB, 'geocoded' for API search
   const routeDetailsRef = useRef(null);
 
   // Calculate distance between two coordinates using Haversine formula
@@ -311,6 +312,9 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
         const distB = getClosestDistanceToRoute(b);
         return distA - distB;
       });
+      
+      // Mark this as a system search
+      setSearchType('system');
     } else if (matchingLandmark && matchingLandmark.coordinates) {
       // Option 2: Landmark exists but not a major stop - use proximity search to find nearby routes
       searchMethod = 'proximity-search';
@@ -322,6 +326,9 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       if (nearbyRoutes.length > 0) {
         routesToSuggest = nearbyRoutes;
       }
+      
+      // Mark this as a system search (landmark was found in system)
+      setSearchType('system');
     }
 
     // Fallback: If no direct routes and no nearby routes, use random selection
@@ -404,6 +411,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
 
     // Inline coordinate finding logic
     let coords = null;
+    let foundInSystem = false;
 
     // First, try to find in landmarks
     const landmark = landmarks.find(lm => 
@@ -412,6 +420,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     if (landmark && landmark.coordinates) {
       console.log('✅ Found in landmarks:', landmark.coordinates);
       coords = landmark.coordinates;
+      foundInSystem = true;
     }
 
     // If not found in landmarks, search in routes
@@ -423,24 +432,34 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
           const match = stopName.toLowerCase() === destination.toLowerCase();
           if (match) {
             console.log('🎯 Found stop in route:', route.number, stopName);
+            // Found in system - mark it even if route has no coordinates
+            foundInSystem = true;
           }
           return match;
         })) {
-          // Found in route, use route's first coordinate
+          // Found in route - try to use route's first coordinate
           console.log('📊 Route coordinates:', route.coordinates);
           if (route.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
             console.log('✅ Using route coordinate:', route.coordinates[0]);
             coords = route.coordinates[0];
           } else {
-            console.log('❌ Route has no valid coordinates');
+            console.log('❌ Route has no valid coordinates, but destination found in system');
+            // Even without route coords, we found it in system
+            // Try to find if there's a landmark with this name
+            const stopLandmark = landmarks.find(lm => 
+              lm.name.toLowerCase() === destination.toLowerCase()
+            );
+            if (stopLandmark && stopLandmark.coordinates) {
+              coords = stopLandmark.coordinates;
+            }
           }
           break; // Exit after finding first matching route
         }
       }
     }
 
-    // If still not found, try geocoding the input (in case it's a street name)
-    if (!coords) {
+    // If still not found in system, try geocoding the input (in case it's a street name)
+    if (!coords && !foundInSystem) {
       console.log('🌍 Geocoding search query:', destination);
       const geocodedCoords = await geocodeAddress(destination);
       
@@ -455,6 +474,9 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
           setSuggestedRoutes(nearbyRoutes);
           setSelectedRoute(nearbyRoutes[0]);
           
+          // Mark this as a geocoded search
+          setSearchType('geocoded');
+          
           // Show a helpful message
           const routeList = nearbyRoutes.map((r, i) => 
             `${i + 1}. Route ${r.number} - ${r.name} (${formatDistance(r.distanceKm)} away)`
@@ -464,6 +486,9 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
           return; // Stop here, we found nearby routes
         }
       }
+    } else if (foundInSystem) {
+      // If found in system, mark as system search
+      setSearchType('system');
     }
 
     // Set destination coordinates if found
@@ -515,6 +540,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                             setShowDropdown(false);
                             setExpandedRouteId(null);
                             setSuggestedRoutes([]);
+                            setSearchType('');
                           }}
                           title="Clear search"
                         >
@@ -596,6 +622,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                   selectedDestination={selectedDestinationCoords}
                   showLandmarks={!selectedDestinationCoords}
                   zoomBounds={zoomBounds}
+                  searchType={searchType}
                   onRouteClick={(route) => { setSelectedRoute(route); setShowRouteDetails(true); }}
                 />
               </div>
