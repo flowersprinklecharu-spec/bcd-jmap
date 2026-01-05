@@ -124,7 +124,14 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
       timestamp: new Date().toLocaleString()
     };
     
-    setNewStops([...newStops, newStop]);
+    const updatedStops = [...newStops, newStop];
+    setNewStops(updatedStops);
+    
+    // Immediately notify parent component of the new stops
+    // This ensures stops are saved to editingRoute.majorStops in the parent
+    console.log('✅ Add Stops - Calling onSave with stops:', updatedStops);
+    onSave(updatedStops);
+    
     setNewStopName('');
     setTempPin(null);
   };

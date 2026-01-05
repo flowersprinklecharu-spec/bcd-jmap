@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db, normalizeDocData } from '../firebase';
+import { geocodeAddress } from '../utils/geocodingService';
+import { findNearbyRoutes, formatDistance, searchRoutesByNameOrProximity } from '../utils/routeMatchingService';
+import { calculateBounds, addPaddingToBounds } from '../utils/boundsCalculator';
 // Navbar moved to App.js (top-level)
 import LeafletMap from '../Map/LeafletMap';
 
@@ -42,6 +45,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [suggestedRoutes, setSuggestedRoutes] = useState([]);
   const [highlightedStops, setHighlightedStops] = useState([]);
   const [selectedDestinationCoords, setSelectedDestinationCoords] = useState(null);
+  const [zoomBounds, setZoomBounds] = useState(null); // For smart zoom on route selection
   const routeDetailsRef = useRef(null);
 
   // Calculate distance between two coordinates using Haversine formula
@@ -166,6 +170,14 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       const unsubRoutes = onSnapshot(routesQuery, (snapshot) => {
         const routes = snapshot.docs.map(doc => {
           const data = doc.data();
+          
+          console.log(`📦 Route loaded: ${data.number || 'unknown'}`, {
+            hasCoordinates: !!data.coordinates,
+            coordinatesType: Array.isArray(data.coordinates) ? 'array' : typeof data.coordinates,
+            coordinatesLength: Array.isArray(data.coordinates) ? data.coordinates.length : 'N/A',
+            coordinatesFirstItem: Array.isArray(data.coordinates) ? data.coordinates[0] : 'N/A'
+          });
+          
           // Validate coordinates before adding to state
           if (data.coordinates) {
             // If coordinates is an array (polyline), validate each point
@@ -176,7 +188,13 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                 typeof coord[0] === 'number' && 
                 typeof coord[1] === 'number'
               );
-              data.coordinates = validCoords.length > 0 ? validCoords : null;
+              if (validCoords.length > 0) {
+                data.coordinates = validCoords;
+                console.log(`✅ Route ${data.number}: Validated ${validCoords.length} coordinates`);
+              } else {
+                console.warn(`⚠️ Route ${data.number}: No valid coordinates found in array`);
+                data.coordinates = null;
+              }
             }
             // If coordinates is a GeoPoint, convert it
             else if (typeof data.coordinates.latitude === 'number') {
@@ -184,10 +202,16 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                 latitude: data.coordinates.latitude,
                 longitude: data.coordinates.longitude
               };
+              console.log(`✅ Route ${data.number}: Converted GeoPoint to object`);
             }
+          } else {
+            console.warn(`⚠️ Route ${data.number}: No coordinates found in Firestore`);
           }
+          
           return { id: doc.id, ...data };
         });
+        
+        console.log(`📊 Loaded ${routes.length} total routes. Routes with coordinates:`, routes.filter(r => r.coordinates).length);
         setJeepneyRoutes(routes);
       }, (err) => {
         console.error('Routes listener error', err);
@@ -250,6 +274,8 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const triggerFindRoute = (destinationName) => {
     if (!destinationName || jeepneyRoutes.length === 0) return;
 
+    console.log('🔍 triggerFindRoute called with:', destinationName);
+
     // Find all routes that have the destination in their major stops (handle both string and object formats)
     const matchingRoutes = jeepneyRoutes.filter(route =>
       route.majorStops && 
@@ -259,30 +285,81 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       })
     );
 
+    console.log('🛣️ Routes with destination as major stop:', matchingRoutes.length);
+
     // Also find the landmark if it matches
     const matchingLandmark = landmarks.find(lm => 
       lm.name.toLowerCase() === destinationName.toLowerCase()
     );
 
-    // Set suggested routes (use matching routes or random selection)
+    if (matchingLandmark) {
+      console.log('🏛️ Found matching landmark:', matchingLandmark.name);
+    }
+
+    // Set suggested routes (use matching routes, proximity search, or random selection)
     let routesToSuggest = [];
+    let searchMethod = 'none';
+
     if (matchingRoutes.length > 0) {
+      // Option 1: Routes with destination as direct major stop
+      searchMethod = 'direct-stops';
+      console.log('✅ Using Option 1: Direct stop matching');
+      
       // Sort matching routes by distance from user location
       routesToSuggest = matchingRoutes.sort((a, b) => {
         const distA = getClosestDistanceToRoute(a);
         const distB = getClosestDistanceToRoute(b);
         return distA - distB;
       });
-    } else {
-      // Get 3 random routes as suggestions
+    } else if (matchingLandmark && matchingLandmark.coordinates) {
+      // Option 2: Landmark exists but not a major stop - use proximity search to find nearby routes
+      searchMethod = 'proximity-search';
+      console.log('✅ Using Option 2: Proximity search for routes near landmark', matchingLandmark.coordinates);
+      
+      const nearbyRoutes = findNearbyRoutes(matchingLandmark.coordinates, jeepneyRoutes, 0.5);
+      console.log(`🎯 Found ${nearbyRoutes.length} routes near landmark`);
+      
+      if (nearbyRoutes.length > 0) {
+        routesToSuggest = nearbyRoutes;
+      }
+    }
+
+    // Fallback: If no direct routes and no nearby routes, use random selection
+    if (routesToSuggest.length === 0) {
+      searchMethod = 'random';
+      console.log('✅ Using Option 3: Random route selection (no matching routes found)');
+      
       const shuffled = [...jeepneyRoutes].sort(() => Math.random() - 0.5);
       routesToSuggest = shuffled.slice(0, Math.min(3, shuffled.length));
     }
 
+    console.log(`📊 Search method: ${searchMethod}, Routes selected: ${routesToSuggest.length}`);
+
     setSuggestedRoutes(routesToSuggest);
+    
     // Auto-select the closest route
     if (routesToSuggest.length > 0) {
-      setSelectedRoute(routesToSuggest[0]);
+      const closestRoute = routesToSuggest[0];
+      console.log('📌 Closest route selected:', closestRoute.number, closestRoute);
+      setSelectedRoute(closestRoute);
+      
+      // Calculate bounds from the selected route's coordinates and zoom map
+      if (closestRoute.coordinates && Array.isArray(closestRoute.coordinates)) {
+        console.log('📍 Route coordinates exist, length:', closestRoute.coordinates.length, closestRoute.coordinates);
+        const bounds = calculateBounds(closestRoute.coordinates);
+        console.log('🔢 Calculated bounds:', bounds);
+        if (bounds) {
+          console.log('🎯 Setting zoom bounds for route:', closestRoute.number, bounds);
+          setZoomBounds(bounds);
+        } else {
+          console.warn('⚠️ Bounds calculation returned null');
+        }
+      } else {
+        console.warn('⚠️ No valid coordinates found on route:', closestRoute);
+      }
+    } else {
+      console.log('ℹ️ No routes suggested, clearing zoom bounds');
+      setZoomBounds(null);
     }
 
     // Collect all major stops from matching routes to highlight on map
@@ -296,16 +373,31 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       }
     });
 
+    // Also add stops from proximity-found routes
+    if (searchMethod === 'proximity-search') {
+      routesToSuggest.forEach(route => {
+        if (route.majorStops) {
+          route.majorStops.forEach(stop => {
+            const stopName = typeof stop === 'string' ? stop : stop.name;
+            if (!stopsToHighlight.includes(stopName)) {
+              stopsToHighlight.push(stopName);
+            }
+          });
+        }
+      });
+    }
+
     // Add the landmark if found
     if (matchingLandmark) {
       stopsToHighlight.push(matchingLandmark.name);
     }
 
+    console.log('🔆 Highlighted stops:', stopsToHighlight);
     setHighlightedStops(stopsToHighlight);
   };
 
 
-  const handleFindRoute = () => {
+  const handleFindRoute = async () => {
     if (!destination) return;
 
     console.log('🔍 handleFindRoute called with:', destination);
@@ -343,6 +435,33 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
             console.log('❌ Route has no valid coordinates');
           }
           break; // Exit after finding first matching route
+        }
+      }
+    }
+
+    // If still not found, try geocoding the input (in case it's a street name)
+    if (!coords) {
+      console.log('🌍 Geocoding search query:', destination);
+      const geocodedCoords = await geocodeAddress(destination);
+      
+      if (geocodedCoords) {
+        console.log('✅ Geocoded coordinates:', geocodedCoords);
+        coords = [geocodedCoords.lat, geocodedCoords.lng];
+        
+        // Find nearby routes using geocoded location
+        const nearbyRoutes = findNearbyRoutes(geocodedCoords, jeepneyRoutes, 0.5);
+        if (nearbyRoutes.length > 0) {
+          console.log('🛣️ Found nearby routes:', nearbyRoutes);
+          setSuggestedRoutes(nearbyRoutes);
+          setSelectedRoute(nearbyRoutes[0]);
+          
+          // Show a helpful message
+          const routeList = nearbyRoutes.map((r, i) => 
+            `${i + 1}. Route ${r.number} - ${r.name} (${formatDistance(r.distanceKm)} away)`
+          ).join('\n');
+          console.log(`📍 Routes passing near "${destination}":\n${routeList}`);
+          
+          return; // Stop here, we found nearby routes
         }
       }
     }
@@ -476,6 +595,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                   destination={destination}
                   selectedDestination={selectedDestinationCoords}
                   showLandmarks={!selectedDestinationCoords}
+                  zoomBounds={zoomBounds}
                   onRouteClick={(route) => { setSelectedRoute(route); setShowRouteDetails(true); }}
                 />
               </div>

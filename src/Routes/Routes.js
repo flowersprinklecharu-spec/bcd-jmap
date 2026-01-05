@@ -7,6 +7,8 @@ import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AdminContext } from '../contexts/AdminContext';
 import { getNextRouteNumber, getRouteColor } from '../utils/routeUtils';
+import { geocodeAddress } from '../utils/geocodingService';
+import { findNearbyRoutes, formatDistance } from '../utils/routeMatchingService';
 import './routes.css';
 
 // SVG Icons - Memoized components
@@ -71,7 +73,6 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [modalMode, setModalMode] = useState('view');
   const [editingRoute, setEditingRoute] = useState(null);
   const [showMapEditor, setShowMapEditor] = useState(false);
-  const [highlightedRoute, setHighlightedRoute] = useState(null); // For map highlighting
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Track unsaved changes
   const [landmarks, setLandmarks] = useState([]); // For map display
   const [editingStopIndex, setEditingStopIndex] = useState(null); // For inline stop name editing
@@ -80,6 +81,8 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [toastMessage, setToastMessage] = useState(''); // For toast notifications
   const [highlightedStopIndex, setHighlightedStopIndex] = useState(null); // For animation
   const [confirmCloseModal, setConfirmCloseModal] = useState(false); // Confirmation for closing modal
+  const [nearbyRoutesFromGeocoding, setNearbyRoutesFromGeocoding] = useState([]); // Routes found via geocoding
+  const [showNearbyRoutesSection, setShowNearbyRoutesSection] = useState(false); // Whether to show nearby routes
 
   // Memoized filtered and sorted routes
   const filteredRoutes = useMemo(() => {
@@ -191,6 +194,18 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
 
   const handleSaveRoute = useCallback(async () => {
     try {
+      // Log the exact data being saved for debugging
+      console.log('🔍 DEBUG: handleSaveRoute called');
+      console.log('  Mode:', modalMode);
+      console.log('  editingRoute.id:', editingRoute?.id);
+      console.log('  editingRoute.number:', editingRoute?.number);
+      console.log('  editingRoute.name:', editingRoute?.name);
+      console.log('  editingRoute.majorStops:', editingRoute?.majorStops);
+      console.log('  editingRoute.majorStops length:', editingRoute?.majorStops?.length);
+      console.log('  editingRoute.coordinates:', editingRoute?.coordinates);
+      console.log('  editingRoute.coordinates length:', editingRoute?.coordinates?.length);
+      console.log('  Full editingRoute object:', JSON.stringify(editingRoute, null, 2));
+      
       if (modalMode === 'add') {
         await saveRoute(editingRoute);
         alert('✅ Route added successfully!');
@@ -203,7 +218,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       setHasUnsavedChanges(false);
       closeModal();
     } catch (err) {
-      console.error(err);
+      console.error('❌ Error saving route:', err);
       alert('❌ Failed to save route: ' + err.message);
     }
   }, [modalMode, editingRoute, closeModal]);
@@ -257,11 +272,6 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     }
   }, [editingRoute, modalMode]);
 
-  // Clear highlighted route when search query changes to prevent stale state
-  useEffect(() => {
-    setHighlightedRoute(null);
-  }, [searchQuery]);
-
   // Warn before closing/refreshing if there are unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e) => {
@@ -290,18 +300,30 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const handleMapEditorSave = useCallback((newStops) => {
     // Preserve existing majorStops and append new ones (avoid duplicates)
     const existingStops = editingRoute.majorStops || [];
-    const newStopNames = newStops.map(stop => stop.name);
-    const uniqueNewStops = newStopNames.filter(name => !existingStops.includes(name));
+    
+    // Filter out duplicates based on stop name
+    const existingStopNames = existingStops.map(stop => {
+      if (typeof stop === 'string') return stop;
+      if (typeof stop === 'object' && stop.name) return stop.name;
+      return null;
+    }).filter(Boolean);
+    
+    // Keep full stop objects with coordinates for new stops
+    const uniqueNewStops = newStops.filter(newStop => !existingStopNames.includes(newStop.name));
+    
+    // Merge existing and new stops - preserve full objects with coordinates
     const mergedStops = [...existingStops, ...uniqueNewStops];
     
-    // Update editing route with new stops
+    // Update editing route with new stops (full objects, not just names)
     setEditingRoute(prev => ({
       ...prev,
-      majorStops: mergedStops,
-      stops: [...(prev.stops || []), ...newStops]
+      majorStops: mergedStops
     }));
     
-    setShowMapEditor(false);
+    console.log('✅ Map Editor Save - Added stops:', uniqueNewStops);
+    console.log('  Total majorStops now:', mergedStops.length);
+    console.log('  majorStops data:', mergedStops);
+    
     alert(`✅ Added ${uniqueNewStops.length} new stops!`);
   }, [editingRoute]);
 
@@ -336,6 +358,47 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       majorStops: prev.majorStops.filter((_, i) => i !== index)
     }));
   }, []);
+
+  // Handle search with geocoding fallback
+  const handleSearchWithGeocoding = useCallback(async (query) => {
+    setSearchQuery(query);
+    
+    // If query is short or looks like a route number, don't geocode
+    if (query.length < 3 || /^\d+$/.test(query)) {
+      setShowNearbyRoutesSection(false);
+      setNearbyRoutesFromGeocoding([]);
+      return;
+    }
+
+    // Filter routes normally first
+    const exactMatches = filteredRoutes;
+
+    // If we found exact matches, don't need to geocode
+    if (exactMatches.length > 0) {
+      setShowNearbyRoutesSection(false);
+      setNearbyRoutesFromGeocoding([]);
+      return;
+    }
+
+    // No exact matches, try geocoding the search query
+    console.log('🌍 No exact matches, attempting geocoding for:', query);
+    const coords = await geocodeAddress(query);
+
+    if (coords) {
+      const nearbyRoutes = findNearbyRoutes(coords, routes, 0.5);
+      if (nearbyRoutes.length > 0) {
+        console.log(`✅ Found ${nearbyRoutes.length} routes near "${query}":`, nearbyRoutes);
+        setNearbyRoutesFromGeocoding(nearbyRoutes);
+        setShowNearbyRoutesSection(true);
+      } else {
+        setShowNearbyRoutesSection(false);
+        setNearbyRoutesFromGeocoding([]);
+      }
+    } else {
+      setShowNearbyRoutesSection(false);
+      setNearbyRoutesFromGeocoding([]);
+    }
+  }, [filteredRoutes, routes]);
 
   // Handler for saving edited stop name (placeholder - can be enhanced later)
   const handleSaveStopName = useCallback((index) => {
@@ -422,11 +485,11 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                 type="text"
                 placeholder="Search routes, landmarks, or destinations..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => handleSearchWithGeocoding(e.target.value)}
                 className="search-input"
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
-                    setSearchQuery('');
+                    handleSearchWithGeocoding('');
                   }
                 }}
               />
@@ -441,46 +504,66 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
           </div>
         </div>
 
-        {/* Map Display Section */}
-        {highlightedRoute && highlightedRoute.coordinates && highlightedRoute.coordinates.length > 0 && (
-          <div className="route-map-preview">
-            <div className="map-preview-header">
-              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span 
-                  style={{ 
-                    backgroundColor: highlightedRoute.color, 
-                    color: '#fff', 
-                    padding: '4px 12px', 
-                    borderRadius: '4px',
-                    fontWeight: 'bold'
-                  }}
-                >
-                  Route {highlightedRoute.number}
-                </span>
-                {highlightedRoute.name}
-              </h3>
-              <button 
-                onClick={() => setHighlightedRoute(null)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '24px',
-                  cursor: 'pointer',
-                  padding: '0 8px',
-                  color: '#666'
-                }}
-              >
-                ×
-              </button>
+        {/* Nearby Routes Section (from Geocoding) */}
+        {showNearbyRoutesSection && nearbyRoutesFromGeocoding.length > 0 && (
+          <div style={{
+            padding: '2rem',
+            backgroundColor: '#f0f4ff',
+            borderRadius: '8px',
+            marginBottom: '2rem',
+            border: '2px solid #3b82f6'
+          }}>
+            <h2 style={{ color: '#1e40af', marginTop: 0 }}>
+              🛣️ Routes passing near "{searchQuery}"
+            </h2>
+            <div className="routes-grid">
+              {nearbyRoutesFromGeocoding.map((route) => (
+                <div key={route.id} className="route-card">
+                  <div className="route-header">
+                    <div 
+                      className="route-number"
+                      style={{ backgroundColor: route.color }}
+                    >
+                      {route.number}
+                    </div>
+                    <div className="route-info">
+                      <h3 className="route-name">{route.name}</h3>
+                      <p className="route-description" style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#6b7280' }}>
+                        📍 {formatDistance(route.distanceKm)} away
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="route-footer">
+                    <div className="route-fare">Fare: {route.fare}</div>
+                    <div className="route-actions">
+                      <button 
+                        className="view-details-btn"
+                        onClick={() => openModal(route, 'view')}
+                      >
+                        View Details
+                      </button>
+                      {isAdmin && (
+                        <>
+                          <button 
+                            className="admin-edit-btn"
+                            onClick={() => handleEditRoute(route)}
+                          >
+                            <EditIcon />
+                          </button>
+                          <button 
+                            className="admin-delete-btn"
+                            onClick={() => handleDeleteRoute(route.id)}
+                          >
+                            <DeleteIcon />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
-            <LeafletMap
-              routes={routes}
-              selectedRoute={highlightedRoute}
-              landmarks={landmarks}
-              highlightedStops={[]}
-              destination=""
-              suggestedRoutes={[]}
-            />
           </div>
         )}
 
@@ -489,9 +572,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
             filteredRoutes.map((route) => (
               <div 
                 key={route.id} 
-                className={`route-card ${highlightedRoute?.id === route.id ? 'route-card-active' : ''}`}
-                onClick={() => setHighlightedRoute(route)}
-                style={{ cursor: 'pointer' }}
+                className="route-card"
               >
               <div className="route-header">
                 <div 
@@ -771,7 +852,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                       </button>
                     </div>
                     
-                    {!showMapEditor && modalMode === 'edit' && editingRoute && Array.isArray(editingRoute.majorStops) && editingRoute.majorStops.length > 0 && (
+                    {!showMapEditor && editingRoute && Array.isArray(editingRoute.majorStops) && editingRoute.majorStops.length > 0 && (
                       <div className="existing-stops-section">
                         <h5 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: '600', color: '#333' }}>
                           Major Stops ({editingRoute.majorStops.length})
@@ -779,6 +860,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                         <div className="existing-stops-list">
                           {editingRoute.majorStops.map((stop, index) => {
                             const stopName = typeof stop === 'string' ? stop : (stop && stop.name) ? stop.name : 'Unknown Stop';
+                            const hasCoords = typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined;
                             
                             return (
                               <div key={index} style={{
@@ -805,9 +887,16 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                                 }}>
                                   {index + 1}
                                 </div>
-                                <span style={{ flex: 1, color: '#333', fontWeight: '500' }}>
-                                  {stopName}
-                                </span>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ color: '#333', fontWeight: '500' }}>
+                                    {stopName}
+                                  </div>
+                                  {hasCoords && (
+                                    <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>
+                                      📍 {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             );
                           })}

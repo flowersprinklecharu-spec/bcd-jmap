@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, LayersControl, ZoomControl, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
+import { boundsToLeafletFormat, addPaddingToBounds } from '../utils/boundsCalculator';
 
 // Helper function to safely get coordinates
 const getCoordinates = (coords) => {
@@ -109,6 +110,52 @@ const LocationSelectionHandler = ({ editingStopLocation, onLocationSelect }) => 
       map.off('click', handleMapClick);
     };
   }, [map, editingStopLocation, onLocationSelect]);
+
+  return null;
+};
+
+// Component to handle map zoom to bounds
+const BoundsHandler = ({ bounds }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    console.log('🔄 BoundsHandler useEffect triggered. bounds:', bounds, 'map:', !!map);
+    
+    if (!map) {
+      console.warn('⚠️ Map not ready in BoundsHandler');
+      return;
+    }
+    
+    if (!bounds) {
+      console.log('ℹ️ No bounds provided to BoundsHandler');
+      return;
+    }
+
+    try {
+      console.log('📦 Processing bounds:', bounds);
+      // Add 10% padding to bounds for better visibility
+      const paddedBounds = addPaddingToBounds(bounds, 0.1);
+      console.log('📦 Padded bounds:', paddedBounds);
+      
+      const leafletBounds = boundsToLeafletFormat(paddedBounds);
+      console.log('📦 Leaflet bounds format:', leafletBounds);
+
+      if (leafletBounds) {
+        console.log('🎯 Calling map.flyToBounds with:', leafletBounds);
+        // Use flyTo for smooth animation
+        map.flyToBounds(leafletBounds, {
+          padding: [50, 50],
+          duration: 1.5,
+          easeLinearity: 0.25
+        });
+        console.log('✅ flyToBounds called successfully');
+      } else {
+        console.error('❌ boundsToLeafletFormat returned null');
+      }
+    } catch (err) {
+      console.error('❌ Error fitting bounds:', err);
+    }
+  }, [map, bounds]);
 
   return null;
 };
@@ -227,7 +274,7 @@ const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) 
   return null;
 };
 
-const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true }) => {
+const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true, zoomBounds = null }) => {
   // Bacolod City bounds (southwest and northeast corners) - tighter bounds
   const bacolodbounds = [
     [10.4050, 122.9150], // Southwest corner
@@ -253,6 +300,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
       >
         <ZoomControl position="topright" />
         {editingStopLocation && <LocationSelectionHandler editingStopLocation={editingStopLocation} onLocationSelect={onLocationSelect} />}
+        {zoomBounds && <BoundsHandler bounds={zoomBounds} />}
         <MapZoomHandler 
           destination={destination}
           landmarks={landmarks}
