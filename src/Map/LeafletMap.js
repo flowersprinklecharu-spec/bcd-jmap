@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, LayersControl, ZoomControl, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, LayersControl, ZoomControl, useMap, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { boundsToLeafletFormat, addPaddingToBounds } from '../utils/boundsCalculator';
@@ -286,6 +286,34 @@ const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) 
   return null;
 };
 
+// Component to handle zoom to destination with search type (system or geocoded)
+const DestinationZoomHandler = ({ searchType = '', selectedDestination }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    // Only zoom if we have a search type (system or geocoded) and destination coordinates
+    if ((searchType === 'system' || searchType === 'geocoded') && selectedDestination) {
+      console.log('🔍 DestinationZoomHandler: Zooming to destination at building level', {
+        searchType,
+        destination: selectedDestination
+      });
+      
+      try {
+        // Zoom to building level (18) at the destination
+        map.setView([selectedDestination[0], selectedDestination[1]], 18, {
+          animate: true,
+          duration: 1.5
+        });
+        console.log('✅ Zoomed to destination at level 18');
+      } catch (err) {
+        console.error('❌ Error zooming to destination:', err);
+      }
+    }
+  }, [searchType, selectedDestination, map]);
+
+  return null;
+};
+
 const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true, zoomBounds = null, searchType = '' }) => {
   // Bacolod City bounds (southwest and northeast corners) - tighter bounds
   const bacolodbounds = [
@@ -313,6 +341,10 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
         <ZoomControl position="topright" />
         {editingStopLocation && <LocationSelectionHandler editingStopLocation={editingStopLocation} onLocationSelect={onLocationSelect} />}
         {zoomBounds && <BoundsHandler bounds={zoomBounds} />}
+        <DestinationZoomHandler 
+          searchType={searchType}
+          selectedDestination={selectedDestination}
+        />
         <MapZoomHandler 
           destination={destination}
           landmarks={landmarks}
@@ -448,6 +480,9 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
               position={pos}
               icon={isHighlighted ? createLandmarkIcon('#ef4444') : createLandmarkIcon('#f59e0b')}
             >
+              <Tooltip direction="top" offset={[0, -10]} permanent={isHighlighted}>
+                {landmark.name}
+              </Tooltip>
               <Popup>
                 <strong>{landmark.name}</strong>
                 <br />
@@ -509,6 +544,9 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
                   position={pos}
                   icon={createStopIcon(isDestination ? '#ef4444' : selectedRoute.color)}
                 >
+                  <Tooltip direction="top" offset={[0, -10]} permanent={isDestination}>
+                    {stopName}
+                  </Tooltip>
                   <Popup>
                     <strong>{stopName}</strong>
                     <br />

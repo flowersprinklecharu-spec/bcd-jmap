@@ -427,33 +427,42 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     if (!coords) {
       console.log('❌ Not in landmarks, searching in routes...');
       for (let route of jeepneyRoutes) {
-        if (route.majorStops && route.majorStops.some(stop => {
-          const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-          const match = stopName.toLowerCase() === destination.toLowerCase();
-          if (match) {
+        if (route.majorStops && Array.isArray(route.majorStops)) {
+          // Use .find() to get the actual stop object
+          const foundStop = route.majorStops.find(stop => {
+            const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+            return stopName.toLowerCase() === destination.toLowerCase();
+          });
+          
+          if (foundStop) {
+            const stopName = typeof foundStop === 'string' ? foundStop : (foundStop?.name || '');
             console.log('🎯 Found stop in route:', route.number, stopName);
-            // Found in system - mark it even if route has no coordinates
             foundInSystem = true;
-          }
-          return match;
-        })) {
-          // Found in route - try to use route's first coordinate
-          console.log('📊 Route coordinates:', route.coordinates);
-          if (route.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
-            console.log('✅ Using route coordinate:', route.coordinates[0]);
-            coords = route.coordinates[0];
-          } else {
-            console.log('❌ Route has no valid coordinates, but destination found in system');
-            // Even without route coords, we found it in system
-            // Try to find if there's a landmark with this name
-            const stopLandmark = landmarks.find(lm => 
-              lm.name.toLowerCase() === destination.toLowerCase()
-            );
-            if (stopLandmark && stopLandmark.coordinates) {
-              coords = stopLandmark.coordinates;
+            
+            // Priority 1: Check if stop itself has coordinates (lat/lng)
+            if (typeof foundStop === 'object' && foundStop.lat !== undefined && foundStop.lng !== undefined) {
+              console.log('✅ Found stop with coordinates:', [foundStop.lat, foundStop.lng]);
+              coords = [foundStop.lat, foundStop.lng];
             }
+            // Priority 2: Fall back to route's first coordinate
+            else if (route.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
+              console.log('✅ Using route coordinate:', route.coordinates[0]);
+              coords = route.coordinates[0];
+            }
+            // Priority 3: Try to find a matching landmark
+            else {
+              console.log('❌ Stop has no coordinates, trying landmark...');
+              const stopLandmark = landmarks.find(lm => 
+                lm.name.toLowerCase() === stopName.toLowerCase()
+              );
+              if (stopLandmark && stopLandmark.coordinates) {
+                console.log('✅ Found landmark for stop:', stopLandmark.name);
+                coords = stopLandmark.coordinates;
+              }
+            }
+            
+            break; // Exit after finding first matching route
           }
-          break; // Exit after finding first matching route
         }
       }
     }
@@ -560,29 +569,56 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                               e.preventDefault();
                               setDestination(suggestion);
                               setShowDropdown(false);
+                              
                               // Get coordinates and set for map zoom
                               let coords = null;
+                              let foundInSystem = false;
+                              
+                              // First, try to find in landmarks
                               const landmark = landmarks.find(lm => 
                                 lm.name.toLowerCase() === suggestion.toLowerCase()
                               );
                               if (landmark && landmark.coordinates) {
                                 coords = landmark.coordinates;
-                              } else {
+                                foundInSystem = true;
+                              }
+                              
+                              // If not found in landmarks, search in routes with priority for stop's own coords
+                              if (!coords) {
                                 for (let route of jeepneyRoutes) {
-                                  if (route.majorStops && route.majorStops.some(stop => {
-                                    const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-                                    return stopName.toLowerCase() === suggestion.toLowerCase();
-                                  })) {
-                                    if (route.coordinates?.length > 0) {
-                                      coords = route.coordinates[0];
+                                  if (route.majorStops && Array.isArray(route.majorStops)) {
+                                    // Use .find() to get the actual stop object
+                                    const foundStop = route.majorStops.find(stop => {
+                                      const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+                                      return stopName.toLowerCase() === suggestion.toLowerCase();
+                                    });
+                                    
+                                    if (foundStop) {
+                                      const stopName = typeof foundStop === 'string' ? foundStop : (foundStop?.name || '');
+                                      foundInSystem = true;
+                                      
+                                      // Priority 1: Check if stop itself has coordinates (lat/lng)
+                                      if (typeof foundStop === 'object' && foundStop.lat !== undefined && foundStop.lng !== undefined) {
+                                        coords = [foundStop.lat, foundStop.lng];
+                                      }
+                                      // Priority 2: Fall back to route's first coordinate
+                                      else if (route.coordinates?.length > 0) {
+                                        coords = route.coordinates[0];
+                                      }
+                                      break;
                                     }
-                                    break;
                                   }
                                 }
                               }
+                              
+                              // Set coordinates and search type
                               if (coords) {
                                 setSelectedDestinationCoords(coords);
                               }
+                              if (foundInSystem) {
+                                setSearchType('system');
+                              }
+                              
                               // Auto-trigger find routes
                               setTimeout(() => {
                                 triggerFindRoute(suggestion);
