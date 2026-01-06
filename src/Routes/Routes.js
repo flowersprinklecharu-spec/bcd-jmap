@@ -83,6 +83,8 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [confirmCloseModal, setConfirmCloseModal] = useState(false); // Confirmation for closing modal
   const [nearbyRoutesFromGeocoding, setNearbyRoutesFromGeocoding] = useState([]); // Routes found via geocoding
   const [showNearbyRoutesSection, setShowNearbyRoutesSection] = useState(false); // Whether to show nearby routes
+  const [addPointInput, setAddPointInput] = useState(''); // For Add Point input field
+  const [shouldTriggerCreatePath, setShouldTriggerCreatePath] = useState(false); // Trigger path creation from form button
 
   // Memoized filtered and sorted routes
   const filteredRoutes = useMemo(() => {
@@ -371,17 +373,15 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   }, [editingRoute]);
 
   const handleSaveRouteCoordinates = useCallback((coordinates) => {
-    // Preserve existing coordinates and append new ones (avoid losing previous waypoints)
-    const existingCoordinates = editingRoute.coordinates || [];
-    const mergedCoordinates = [...existingCoordinates, ...coordinates];
-    
+    // Replace coordinates (don't append) - the pathWaypoints from RouteMapEditor are the FULL path
     setEditingRoute(prev => ({
       ...prev,
-      coordinates: mergedCoordinates
+      coordinates: coordinates
     }));
     
-    alert(`✅ Path saved! Route line created between ${mergedCoordinates.length} waypoints. You can add more stops or click "Add Route" to finalize.`);
-  }, [editingRoute]);
+    setHasUnsavedChanges(true);
+    alert(`✅ Path saved! Route line created between ${coordinates.length} waypoints. You can continue editing or click "Save Changes" to finalize.`);
+  }, []);
 
   const handleStopChange = useCallback((index, value) => {
     setEditingRoute(prev => {
@@ -510,6 +510,44 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       name: stopName,
       coordinates: coords
     });
+  }, [editingRoute]);
+
+  // Handler for Add Stops button in form section
+  const handleAddStopsFormButton = useCallback(() => {
+    if (!addPointInput.trim()) {
+      alert('Please enter a stop name');
+      return;
+    }
+
+    // Get the current map location or use a default
+    // For now, we'll just add the stop with the name and let the user place it on the map
+    const newStop = {
+      name: addPointInput.trim(),
+      lat: 10.6750, // Default to Bacolod center
+      lng: 122.9600
+    };
+
+    setEditingRoute(prev => ({
+      ...prev,
+      majorStops: [...(prev.majorStops || []), newStop]
+    }));
+
+    // Clear the input
+    setAddPointInput('');
+    setHasUnsavedChanges(true);
+    setToastMessage(`✓ Stop "${newStop.name}" added!`);
+    setTimeout(() => setToastMessage(''), 2000);
+  }, [addPointInput]);
+
+  // Handler for Create Path button in form section
+  const handleCreatePathFormButton = useCallback(() => {
+    if (!editingRoute || !editingRoute.majorStops || editingRoute.majorStops.length < 2) {
+      alert('Please add at least 2 stops before creating a path');
+      return;
+    }
+
+    // Trigger the RouteMapEditor's path creation by toggling the flag
+    setShouldTriggerCreatePath(true);
   }, [editingRoute]);
 
   return (
@@ -933,21 +971,18 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                         placeholder="Stop name (e.g., Lacson & Araneta)"
                         className="form-input"
                         style={{fontSize: '12px', marginBottom: '8px'}}
+                        value={addPointInput}
+                        onChange={(e) => setAddPointInput(e.target.value)}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            handleAddStopsFormButton();
+                          }
+                        }}
                       />
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-                        <button style={{
-                          padding: '6px 8px',
-                          backgroundColor: '#4a7c59',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '11px',
-                          fontWeight: '600'
-                        }}>
-                          Cancel
-                        </button>
-                        <button style={{
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                        <button 
+                          onClick={handleCreatePathFormButton}
+                          style={{
                           padding: '6px 8px',
                           backgroundColor: '#6b8f6f',
                           color: '#fff',
@@ -959,7 +994,9 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                         }}>
                           Create Path
                         </button>
-                        <button style={{
+                        <button 
+                          onClick={handleAddStopsFormButton}
+                          style={{
                           padding: '6px 8px',
                           backgroundColor: '#557a6b',
                           color: '#fff',
@@ -987,6 +1024,8 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                       onEditStopName={handleEditStopName}
                       onRemoveExistingStop={handleRemoveExistingStop}
                       onEditStopLocation={handleEditStopLocationInMapEditor}
+                      shouldCreatePath={shouldTriggerCreatePath}
+                      onCreatePathTriggered={() => setShouldTriggerCreatePath(false)}
                     />
                   </div>
                 </div>

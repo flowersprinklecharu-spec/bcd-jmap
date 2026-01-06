@@ -124,17 +124,7 @@ function App() {
     setPageParams(params);
   };
 
-  const AdminModeIndicator = () => {
-    console.log('🔍 AdminModeIndicator render:', { isAdmin, isAdminEditing });
-    if (isAdmin && isAdminEditing) {
-      return (
-        <div className="admin-mode-indicator">
-          Admin Mode Active
-        </div>
-      );
-    }
-    return null;
-  };
+
 
   const renderPage = () => {
     const handleRequestLogin = () => setCurrentPage('admin');
@@ -174,7 +164,6 @@ function App() {
         )}
         {renderPage()}
       </AdminProvider>
-      <AdminModeIndicator />
     </div>
   );
 }

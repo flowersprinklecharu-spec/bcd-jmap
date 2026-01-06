@@ -331,16 +331,33 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       setSearchType('system');
     }
 
-    // Fallback: If no direct routes and no nearby routes, use random selection
+    // Fallback: If no direct routes and no nearby routes, find routes closest to user location
     if (routesToSuggest.length === 0) {
-      searchMethod = 'random';
-      console.log('✅ Using Option 3: Random route selection (no matching routes found)');
-      
-      const shuffled = [...jeepneyRoutes].sort(() => Math.random() - 0.5);
-      routesToSuggest = shuffled.slice(0, Math.min(3, shuffled.length));
+      if (userLocation) {
+        searchMethod = 'proximity-to-user';
+        console.log('✅ Using Option 3: Routes closest to user location');
+        
+        // Sort all routes by distance from user location
+        routesToSuggest = [...jeepneyRoutes].sort((a, b) => {
+          const distA = getClosestDistanceToRoute(a);
+          const distB = getClosestDistanceToRoute(b);
+          return distA - distB;
+        }).slice(0, Math.min(3, jeepneyRoutes.length));
+        
+        setSearchType('fallback');
+      } else {
+        searchMethod = 'random';
+        console.log('✅ Using Option 3: Random route selection (user location unavailable)');
+        
+        const shuffled = [...jeepneyRoutes].sort(() => Math.random() - 0.5);
+        routesToSuggest = shuffled.slice(0, Math.min(3, shuffled.length));
+        
+        setSearchType('fallback');
+      }
     }
 
     console.log(`📊 Search method: ${searchMethod}, Routes selected: ${routesToSuggest.length}`);
+    console.log(`🏷️ Search type: ${searchType || 'unknown'}`);
 
     setSuggestedRoutes(routesToSuggest);
     
@@ -667,6 +684,49 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
             {suggestedRoutes.length > 0 && (
               <div className="card">
                 <h2 className="card-title">Available Jeepneys to {destination}</h2>
+                
+                {/* Search type feedback message */}
+                {searchType === 'system' && (
+                  <div style={{
+                    padding: '0.75rem 1rem',
+                    marginBottom: '1rem',
+                    backgroundColor: '#d1fae5',
+                    borderLeft: '4px solid #10b981',
+                    borderRadius: '0.375rem',
+                    color: '#065f46',
+                    fontSize: '14px'
+                  }}>
+                    ✓ Found "{destination}" in the system - showing jeepneys that have this stop
+                  </div>
+                )}
+                
+                {searchType === 'geocoded' && (
+                  <div style={{
+                    padding: '0.75rem 1rem',
+                    marginBottom: '1rem',
+                    backgroundColor: '#fef3c7',
+                    borderLeft: '4px solid #f59e0b',
+                    borderRadius: '0.375rem',
+                    color: '#78350f',
+                    fontSize: '14px'
+                  }}>
+                    📍 "{destination}" was located using map search - showing jeepneys passing nearby
+                  </div>
+                )}
+                
+                {searchType === 'fallback' && (
+                  <div style={{
+                    padding: '0.75rem 1rem',
+                    marginBottom: '1rem',
+                    backgroundColor: '#e0e7ff',
+                    borderLeft: '4px solid #6366f1',
+                    borderRadius: '0.375rem',
+                    color: '#312e81',
+                    fontSize: '14px'
+                  }}>
+                    ℹ️ "{destination}" not found in system - showing jeepneys closest to you
+                  </div>
+                )}
                 
                 <div className="suggested-routes">
                   {suggestedRoutes.map((route) => (

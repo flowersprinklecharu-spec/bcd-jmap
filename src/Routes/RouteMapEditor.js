@@ -12,7 +12,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
 });
 
-const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocation, onRemoveExistingStop, onEditStopName, onSaveCoordinates }) => {
+const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocation, onRemoveExistingStop, onEditStopName, onSaveCoordinates, shouldCreatePath, onCreatePathTriggered }) => {
   const [newStops, setNewStops] = useState([]); // Only track new stops being added
   const [newStopName, setNewStopName] = useState('');
   const [selectedStop, setSelectedStop] = useState(null);
@@ -24,6 +24,18 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
   const [confirmCancel, setConfirmCancel] = useState(false); // Confirmation for closing modal
   const [isDrawingPath, setIsDrawingPath] = useState(false); // Toggle for drawing mode
   const [pathWaypoints, setPathWaypoints] = useState([]); // Waypoints for the drawn path
+  const [selectedPathPopup, setSelectedPathPopup] = useState(null); // {show: boolean, latlng: [lat, lng]}
+  const [renameStopDialog, setRenameStopDialog] = useState(null); // {show: boolean, index: number, currentName: string, newName: string}
+  
+  // Watch for shouldCreatePath trigger from parent
+  useEffect(() => {
+    if (shouldCreatePath) {
+      handleCreatePath();
+      if (onCreatePathTriggered) {
+        onCreatePathTriggered();
+      }
+    }
+  }, [shouldCreatePath, onCreatePathTriggered]);
   
   // Fallback effect: reload waypoints when component visibility changes or route changes
   useEffect(() => {
@@ -58,10 +70,10 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     }
   }, [route?.id]);
   
-  // Bacolod city bounds to limit map area
+  // Extended bounds to include nearby municipalities (Bacolod, Silay, Talisay, Sumag)
   const bacolodBounds = [
-    [10.6200, 122.9100], // Southwest corner
-    [10.7300, 123.0100]  // Northeast corner
+    [10.5400, 122.8800], // Southwest corner (Talisay area)
+    [10.8000, 123.0500]  // Northeast corner (Silay area)
   ];
 
   // Initialize waypoints when editing an existing route with coordinates
@@ -268,9 +280,9 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     console.log('🖊️ handleCreatePath called');
     console.log('  route.majorStops:', route?.majorStops);
     console.log('  route.majorStops length:', route?.majorStops?.length);
-    console.log('  newStops length:', newStops.length);
+    console.log('  current pathWaypoints:', pathWaypoints.length);
     
-    const totalStops = (route?.majorStops?.length || 0) + newStops.length;
+    const totalStops = (route?.majorStops?.length || 0);
     console.log('  totalStops:', totalStops);
     
     if (totalStops < 2) {
@@ -278,55 +290,14 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
       return;
     }
     
-    // Always enter drawing mode (don't toggle)
+    // Enter drawing mode - KEEP existing waypoints if they exist, or start fresh if none
     if (!isDrawingPath) {
       console.log('🖊️ Entering drawing mode for path creation');
-      
-      // If we have existing saved path coordinates, use them
-      if (route?.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
-        // Load existing path waypoints from the route
-        console.log('📍 Loading existing path waypoints in drawing mode:', route.coordinates.length);
-        const existingWaypoints = route.coordinates.map((coord, idx) => ({
-          lat: coord.lat,
-          lng: coord.lng,
-          id: `existing-${idx}-${Date.now()}`
-        }));
-        setPathWaypoints(existingWaypoints);
-      } else if (newStops.length > 0) {
-        // Use new stops as waypoints
-        console.log('📍 Using new stops as waypoints:', newStops.length);
-        setPathWaypoints(newStops);
-      } else if (!isNewRoute && route?.majorStops && route.majorStops.length > 0) {
-        // In edit mode with no saved path and no new stops, use existing stops as waypoints
-        console.log('🔍 Checking majorStops for coordinates...');
-        console.log('  majorStops data:', route.majorStops);
-        
-        const existingStopsWithCoords = route.majorStops.filter(stop => {
-          const hasCoords = stop && typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined;
-          console.log('  Stop check:', {stop, hasCoords, type: typeof stop});
-          return hasCoords;
-        });
-        
-        console.log('  existingStopsWithCoords:', existingStopsWithCoords);
-        console.log('  existingStopsWithCoords length:', existingStopsWithCoords.length);
-        
-        if (existingStopsWithCoords.length > 0) {
-          console.log('📍 Using existing stops as waypoints for path:', existingStopsWithCoords.length);
-          const existingWaypoints = existingStopsWithCoords.map((stop, idx) => ({
-            lat: stop.lat,
-            lng: stop.lng,
-            id: `stop-${idx}-${Date.now()}`
-          }));
-          console.log('  Created waypoints:', existingWaypoints);
-          setPathWaypoints(existingWaypoints);
-        } else {
-          console.log('✨ Starting fresh path (no stops with coords found)');
-          setPathWaypoints([]);
-        }
-      } else {
-        // No existing path, start fresh
-        console.log('✨ Starting fresh path');
+      if (pathWaypoints.length === 0) {
+        console.log('✨ Starting fresh path - user will manually plot waypoints');
         setPathWaypoints([]);
+      } else {
+        console.log('📍 Continuing from existing waypoints:', pathWaypoints.length, 'points');
       }
       setIsDrawingPath(true); // Enter drawing mode
     }
@@ -375,6 +346,28 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     setPathWaypoints(updatedWaypoints);
   };
 
+  // Handle renaming existing stop
+  const handleRenameStop = (index, newName) => {
+    if (!newName.trim()) {
+      alert('Stop name cannot be empty');
+      return;
+    }
+    
+    // Call the parent callback to handle renaming
+    if (onEditStopName) {
+      onEditStopName(index, newName.trim());
+    }
+    
+    setRenameStopDialog(null);
+  };
+
+  // Handle removing existing stop
+  const handleRemoveStop = (index) => {
+    if (onRemoveExistingStop) {
+      onRemoveExistingStop(index);
+    }
+  };
+
   return (
     <div className="route-map-editor">
       <div className="editor-container">
@@ -382,11 +375,11 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
           <div style={{ flex: 1, width: '100%', border: '2px solid #ddd', borderRadius: '6px', overflow: 'hidden', minHeight: 0, display: 'flex' }}>
             <MapContainer 
               center={mapCenter} 
-              zoom={13} 
+              zoom={12} 
               style={{ height: '100%', width: '100%' }}
               maxBounds={bacolodBounds}
               maxBoundsViscosity={1.0}
-              minZoom={12}
+              minZoom={10}
               maxZoom={18}
             >
               <MapEvents />
@@ -413,6 +406,38 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                           <strong>{stopName}</strong>
                           <p>Existing Stop #{index + 1}</p>
                           <p className="coordinates">{stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}</p>
+                          <div style={{ marginTop: '8px', display: 'flex', gap: '4px', flexDirection: 'column' }}>
+                            <button
+                              onClick={() => setRenameStopDialog({ show: true, index, currentName: stopName, newName: stopName })}
+                              style={{
+                                padding: '6px 8px',
+                                backgroundColor: '#2196F3',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600'
+                              }}
+                            >
+                              Rename
+                            </button>
+                            <button
+                              onClick={() => handleRemoveStop(index)}
+                              style={{
+                                padding: '6px 8px',
+                                backgroundColor: '#f44336',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600'
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
                         </div>
                       </Popup>
                     </Marker>
@@ -439,6 +464,12 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                   weight={4}
                   opacity={0.9}
                   dashArray="5, 5"
+                  eventHandlers={{
+                    click: (e) => {
+                      const latlng = e.latlng;
+                      setSelectedPathPopup({ show: true, latlng: [latlng.lat, latlng.lng] });
+                    }
+                  }}
                 />
               )}
               
@@ -506,6 +537,98 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                     </div>
                   </Popup>
                 </Marker>
+              )}
+              
+              {/* Path Popup - shown when user clicks on the drawn path */}
+              {selectedPathPopup?.show && selectedPathPopup?.latlng && (
+                <Popup position={selectedPathPopup.latlng} onClose={() => setSelectedPathPopup({ ...selectedPathPopup, show: false })}>
+                  <div className="marker-popup" style={{ minWidth: '250px' }}>
+                    <strong>Route Path Waypoints</strong>
+                    <p style={{ fontSize: '12px', color: '#666', marginBottom: '8px' }}>Total: {pathWaypoints.length}</p>
+                    
+                    {/* List of waypoints with individual remove buttons */}
+                    <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '8px', borderTop: '1px solid #ddd', paddingTop: '8px' }}>
+                      {pathWaypoints.map((waypoint, index) => (
+                        <div
+                          key={waypoint.id}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '6px 0',
+                            borderBottom: '1px solid #eee',
+                            fontSize: '12px'
+                          }}
+                        >
+                          <div>
+                            <strong>#{index + 1}</strong> ({waypoint.lat.toFixed(4)}, {waypoint.lng.toFixed(4)})
+                          </div>
+                          <button
+                            onClick={() => {
+                              setPathWaypoints(pathWaypoints.filter((_, i) => i !== index));
+                            }}
+                            style={{
+                              padding: '4px 8px',
+                              backgroundColor: '#ff6b6b',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '3px',
+                              cursor: 'pointer',
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              marginLeft: '6px'
+                            }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Save Path and Close buttons */}
+                    <div style={{ display: 'flex', gap: '6px', marginBottom: '0' }}>
+                      <button
+                        onClick={() => {
+                          if (pathWaypoints.length < 2) {
+                            alert('Need at least 2 waypoints to save the path');
+                            return;
+                          }
+                          handleSavePath();
+                          setSelectedPathPopup({ show: false });
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: '6px 8px',
+                          backgroundColor: '#4caf50',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: '600'
+                        }}
+                      >
+                        Save Path
+                      </button>
+                      <button
+                        onClick={() => setSelectedPathPopup({ show: false })}
+                        style={{
+                          flex: 1,
+                          padding: '6px 8px',
+                          backgroundColor: '#9e9e9e',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: '600'
+                        }}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </Popup>
               )}
             </MapContainer>
           </div>
@@ -692,62 +815,6 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                 )}
               </div>
             )}
-
-            {/* Map Editor Action Buttons - Always visible */}
-            <div className="map-editor-actions-compact">
-              {isDrawingPath ? (
-                // Drawing mode buttons
-                <>
-                  <button
-                    type="button"
-                    className="compact-cancel-btn"
-                    onClick={handleCancelDrawing}
-                    title="Cancel drawing mode"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="compact-save-btn"
-                    onClick={handleSavePath}
-                    disabled={pathWaypoints.length < 2}
-                    title={pathWaypoints.length < 2 ? "Add at least 2 waypoints" : "Save the drawn path"}
-                  >
-                    Save Path ({pathWaypoints.length})
-                  </button>
-                </>
-              ) : (
-                // Normal mode buttons
-                <>
-                  <button
-                    type="button"
-                    className="compact-cancel-btn"
-                    onClick={handleClearPin}
-                    title="Clear input and remove pinned location"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="compact-save-btn"
-                    onClick={handleCreatePath}
-                    disabled={newStops.length < 2}
-                    title={newStops.length < 2 ? "Add at least 2 stops first" : "Enter drawing mode to create route path"}
-                  >
-                    Create Path
-                  </button>
-                  <button
-                    type="button"
-                    className="compact-save-btn"
-                    onClick={handleAddPinAsStop}
-                    disabled={false}
-                    title="Add pinned location as a stop"
-                  >
-                    Add Stops
-                  </button>
-                </>
-              )}
-            </div>
 
             {/* Display path waypoints (always visible, not just in drawing mode) */}
             {pathWaypoints.length > 0 && (
@@ -942,6 +1009,92 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                 }}
               >
                 Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Stop Dialog */}
+      {renameStopDialog?.show && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: '#fff',
+            borderRadius: '8px',
+            padding: '2rem',
+            maxWidth: '400px',
+            width: '90%',
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)'
+          }}>
+            <h3 style={{ margin: '0 0 1rem 0', color: '#1f2937' }}>Rename Stop</h3>
+            <p style={{ margin: '0 0 0.5rem 0', color: '#6b7280', fontSize: '13px' }}>
+              Current name: <strong>{renameStopDialog.currentName}</strong>
+            </p>
+            <input
+              type="text"
+              value={renameStopDialog.newName}
+              onChange={(e) => setRenameStopDialog({ ...renameStopDialog, newName: e.target.value })}
+              placeholder="Enter new stop name"
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                border: '1px solid #d1d5db',
+                borderRadius: '0.375rem',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                marginBottom: '1.5rem'
+              }}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handleRenameStop(renameStopDialog.index, renameStopDialog.newName);
+                }
+              }}
+            />
+            <div style={{
+              display: 'flex',
+              gap: '1rem',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={() => setRenameStopDialog(null)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#e5e7eb',
+                  color: '#1f2937',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleRenameStop(renameStopDialog.index, renameStopDialog.newName)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#2196F3',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '0.375rem',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '14px'
+                }}
+              >
+                Save
               </button>
             </div>
           </div>
