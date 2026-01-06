@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -22,12 +22,88 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
   const [confirmDelete, setConfirmDelete] = useState(null); // {type: 'existing'|'new', index: number, id?: string, name?: string}
   const [tempPin, setTempPin] = useState(null); // {lat, lng, name} - temporary pin before adding to stops
   const [confirmCancel, setConfirmCancel] = useState(false); // Confirmation for closing modal
+  const [isDrawingPath, setIsDrawingPath] = useState(false); // Toggle for drawing mode
+  const [pathWaypoints, setPathWaypoints] = useState([]); // Waypoints for the drawn path
+  
+  // Fallback effect: reload waypoints when component visibility changes or route changes
+  useEffect(() => {
+    console.log('🔄 Fallback effect: checking if waypoints need reload', {
+      isNewRoute,
+      routeHasCoords: Array.isArray(route?.coordinates) && route.coordinates.length > 0,
+      pathWaypointsLoaded: pathWaypoints.length
+    });
+    
+    if (!isNewRoute && route?.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0 && pathWaypoints.length === 0) {
+      console.log('⚠️ Fallback: Loading waypoints (main effect may have missed)');
+      const existingWaypoints = route.coordinates
+        .map((coord, idx) => {
+          // Handle {lat, lng} format
+          if (coord && typeof coord.lat === 'number' && typeof coord.lng === 'number') {
+            return { lat: coord.lat, lng: coord.lng, id: `existing-${idx}-${Date.now()}` };
+          }
+          // Handle [lat, lng] array format
+          if (Array.isArray(coord) && coord.length === 2 && !isNaN(coord[0]) && !isNaN(coord[1])) {
+            return { lat: coord[0], lng: coord[1], id: `existing-${idx}-${Date.now()}` };
+          }
+          // Handle {latitude, longitude} GeoPoint format
+          if (coord && typeof coord.latitude === 'number' && typeof coord.longitude === 'number') {
+            return { lat: coord.latitude, lng: coord.longitude, id: `existing-${idx}-${Date.now()}` };
+          }
+          return null;
+        })
+        .filter(w => w !== null);
+      
+      setPathWaypoints(existingWaypoints);
+      console.log('🔄 Fallback: Loaded', existingWaypoints.length, 'waypoints');
+    }
+  }, [route?.id]);
   
   // Bacolod city bounds to limit map area
   const bacolodBounds = [
     [10.6200, 122.9100], // Southwest corner
     [10.7300, 123.0100]  // Northeast corner
   ];
+
+  // Initialize waypoints when editing an existing route with coordinates
+  useEffect(() => {
+    console.log('🔄 RouteMapEditor: useEffect triggered', {
+      isNewRoute,
+      hasRoute: !!route,
+      hasCoordinates: Array.isArray(route?.coordinates),
+      coordinatesLength: route?.coordinates?.length || 0,
+      routeId: route?.id
+    });
+    
+    if (!isNewRoute && route?.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
+      // Load existing path waypoints from the route (silently, without entering drawing mode)
+      console.log('✅ Loading existing waypoints:', route.coordinates.length, 'coordinates');
+      const existingWaypoints = route.coordinates
+        .map((coord, idx) => {
+          // Handle {lat, lng} format
+          if (coord && typeof coord.lat === 'number' && typeof coord.lng === 'number') {
+            return { lat: coord.lat, lng: coord.lng, id: `existing-${idx}-${Date.now()}` };
+          }
+          // Handle [lat, lng] array format
+          if (Array.isArray(coord) && coord.length === 2 && !isNaN(coord[0]) && !isNaN(coord[1])) {
+            return { lat: coord[0], lng: coord[1], id: `existing-${idx}-${Date.now()}` };
+          }
+          // Handle {latitude, longitude} GeoPoint format
+          if (coord && typeof coord.latitude === 'number' && typeof coord.longitude === 'number') {
+            return { lat: coord.latitude, lng: coord.longitude, id: `existing-${idx}-${Date.now()}` };
+          }
+          console.warn('⚠️ Unknown coordinate format at index', idx, ':', coord);
+          return null;
+        })
+        .filter(w => w !== null);
+      
+      setPathWaypoints(existingWaypoints);
+      console.log('📍 Waypoints loaded:', existingWaypoints.length);
+      // Don't auto-enter drawing mode - let user control when to enter
+    } else if (isNewRoute) {
+      console.log('➕ New route mode - no existing waypoints to load');
+      setPathWaypoints([]);
+    }
+  }, [isNewRoute, route?.id, route?.coordinates?.length]);
 
   // Create custom icon for new stops
   const createStopIcon = (index, isSelected) => {
@@ -41,26 +117,40 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     });
   };
 
-  // Create custom icon for existing stops (gray, smaller)
-  const createExistingStopIcon = (index) => {
+  // Create custom icon for existing stops (using route color, fully visible)
+  const createExistingStopIcon = (index, routeColor = '#999') => {
     return L.divIcon({
-      html: `<div class="existing-stop-marker">
+      html: `<div class="existing-stop-marker" style="color: ${routeColor};">
         <div class="existing-stop-marker-label">${index + 1}</div>
       </div>`,
       className: 'existing-marker',
-      iconSize: [28, 28],
-      iconAnchor: [14, 28],
+      iconSize: [32, 32],
+      iconAnchor: [16, 32],
     });
   };
 
   // Add stop by clicking map
-  // Handle map click - only create a temporary pin, not auto-add to stops
+  // Handle map click - add waypoint when in drawing mode, or create temporary pin for stop
   const handleMapClick = (e) => {
+    // When in drawing mode, add waypoint to the path
+    if (isDrawingPath) {
+      console.log('📍 Adding waypoint at', e.latlng.lat, e.latlng.lng);
+      const newWaypoint = {
+        lat: e.latlng.lat,
+        lng: e.latlng.lng,
+        id: Date.now() + Math.random()
+      };
+      setPathWaypoints([...pathWaypoints, newWaypoint]);
+      return;
+    }
+
+    // Normal mode: create a temporary pin for a stop
     if (!newStopName.trim()) {
       alert('Please enter a stop name first');
       return;
     }
     
+    console.log('📌 Creating temp pin for stop:', newStopName, 'at', e.latlng.lat, e.latlng.lng);
     // Create temporary pin instead of auto-adding to stops
     setTempPin({
       name: newStopName,
@@ -95,6 +185,19 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
       setConfirmDelete(null);
     }
   };
+
+  // Cleanup/logging on component mount and unmount
+  useEffect(() => {
+    console.log('🚀 RouteMapEditor mounted', {
+      isNewRoute,
+      routeId: route?.id,
+      coordinatesCount: route?.coordinates?.length || 0,
+      stopsCount: route?.majorStops?.length || 0
+    });
+    return () => {
+      console.log('🛑 RouteMapEditor unmounted');
+    };
+  }, [isNewRoute, route?.id]);
 
   // Reorder stops (only new stops can be reordered)
   const moveStop = (fromIndex, toIndex) => {
@@ -160,6 +263,118 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
     setNewStopName('');
   };
 
+  // Handle activating drawing mode for creating path
+  const handleCreatePath = () => {
+    console.log('🖊️ handleCreatePath called');
+    console.log('  route.majorStops:', route?.majorStops);
+    console.log('  route.majorStops length:', route?.majorStops?.length);
+    console.log('  newStops length:', newStops.length);
+    
+    const totalStops = (route?.majorStops?.length || 0) + newStops.length;
+    console.log('  totalStops:', totalStops);
+    
+    if (totalStops < 2) {
+      alert('Please add at least 2 stops first before creating the path');
+      return;
+    }
+    
+    // Always enter drawing mode (don't toggle)
+    if (!isDrawingPath) {
+      console.log('🖊️ Entering drawing mode for path creation');
+      
+      // If we have existing saved path coordinates, use them
+      if (route?.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
+        // Load existing path waypoints from the route
+        console.log('📍 Loading existing path waypoints in drawing mode:', route.coordinates.length);
+        const existingWaypoints = route.coordinates.map((coord, idx) => ({
+          lat: coord.lat,
+          lng: coord.lng,
+          id: `existing-${idx}-${Date.now()}`
+        }));
+        setPathWaypoints(existingWaypoints);
+      } else if (newStops.length > 0) {
+        // Use new stops as waypoints
+        console.log('📍 Using new stops as waypoints:', newStops.length);
+        setPathWaypoints(newStops);
+      } else if (!isNewRoute && route?.majorStops && route.majorStops.length > 0) {
+        // In edit mode with no saved path and no new stops, use existing stops as waypoints
+        console.log('🔍 Checking majorStops for coordinates...');
+        console.log('  majorStops data:', route.majorStops);
+        
+        const existingStopsWithCoords = route.majorStops.filter(stop => {
+          const hasCoords = stop && typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined;
+          console.log('  Stop check:', {stop, hasCoords, type: typeof stop});
+          return hasCoords;
+        });
+        
+        console.log('  existingStopsWithCoords:', existingStopsWithCoords);
+        console.log('  existingStopsWithCoords length:', existingStopsWithCoords.length);
+        
+        if (existingStopsWithCoords.length > 0) {
+          console.log('📍 Using existing stops as waypoints for path:', existingStopsWithCoords.length);
+          const existingWaypoints = existingStopsWithCoords.map((stop, idx) => ({
+            lat: stop.lat,
+            lng: stop.lng,
+            id: `stop-${idx}-${Date.now()}`
+          }));
+          console.log('  Created waypoints:', existingWaypoints);
+          setPathWaypoints(existingWaypoints);
+        } else {
+          console.log('✨ Starting fresh path (no stops with coords found)');
+          setPathWaypoints([]);
+        }
+      } else {
+        // No existing path, start fresh
+        console.log('✨ Starting fresh path');
+        setPathWaypoints([]);
+      }
+      setIsDrawingPath(true); // Enter drawing mode
+    }
+  };
+
+  // Handle saving the drawn path
+  const handleSavePath = () => {
+    if (pathWaypoints.length < 2) {
+      alert('Please click on the map to add at least 2 waypoints along the route path');
+      return;
+    }
+    console.log('💾 Saving path with', pathWaypoints.length, 'waypoints');
+    // Convert waypoints to coordinates format
+    const coordinates = pathWaypoints.map(waypoint => ({
+      lat: waypoint.lat,
+      lng: waypoint.lng
+    }));
+    onSaveCoordinates(coordinates);
+    // Exit drawing mode
+    setIsDrawingPath(false);
+    setNewStopName('');
+    // Don't clear pathWaypoints - keep them visible on map for reference
+  };
+
+  // Handle canceling drawing mode
+  const handleCancelDrawing = () => {
+    console.log('❌ Canceled drawing mode');
+    setIsDrawingPath(false);
+    // Reload existing waypoints if they exist, or clear if new route
+    if (!isNewRoute && route?.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
+      const existingWaypoints = route.coordinates.map((coord, idx) => ({
+        lat: coord.lat,
+        lng: coord.lng,
+        id: `existing-${idx}-${Date.now()}`
+      }));
+      setPathWaypoints(existingWaypoints);
+      console.log('🔄 Reloaded existing waypoints after cancel');
+    } else {
+      setPathWaypoints([]);
+    }
+  };
+
+  // Handle deleting individual waypoint
+  const handleDeleteWaypoint = (index) => {
+    const updatedWaypoints = pathWaypoints.filter((_, i) => i !== index);
+    setPathWaypoints(updatedWaypoints);
+  };
+
   return (
     <div className="route-map-editor">
       <div className="editor-container">
@@ -180,7 +395,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                 attribution='&copy; OpenStreetMap contributors'
               />
               
-              {/* Render existing stops as gray markers */}
+              {/* Render existing stops with route color markers */}
               {!isNewRoute && (route.majorStops || []).map((stop, index) => {
                 const stopName = typeof stop === 'string' ? stop : stop.name;
                 const hasCoords = typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined;
@@ -191,7 +406,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                     <Marker
                       key={`existing-${index}`}
                       position={[stop.lat, stop.lng]}
-                      icon={createExistingStopIcon(index)}
+                      icon={createExistingStopIcon(index, route.color || '#FF5722')}
                     >
                       <Popup>
                         <div className="marker-popup">
@@ -215,26 +430,63 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
                   opacity={0.8}
                 />
               )}
+
+              {/* Draw polyline for path waypoints (always visible, not just in drawing mode) */}
+              {pathWaypoints.length > 1 && (
+                <Polyline 
+                  positions={pathWaypoints.map(w => [w.lat, w.lng])} 
+                  color="#FF6B35"
+                  weight={4}
+                  opacity={0.9}
+                  dashArray="5, 5"
+                />
+              )}
               
-              {/* Render markers for new stops */}
-              {newStops.map((stop, index) => (
+              {/* Render markers for path waypoints (always visible, not just in drawing mode) */}
+              {pathWaypoints.map((waypoint, index) => (
                 <Marker
-                  key={stop.id}
-                  position={[stop.lat, stop.lng]}
-                  icon={createStopIcon(index, selectedStop?.id === stop.id)}
-                  eventHandlers={{
-                    click: () => setSelectedStop(stop),
-                  }}
+                  key={waypoint.id}
+                  position={[waypoint.lat, waypoint.lng]}
+                  icon={L.divIcon({
+                    html: `<div class="path-waypoint-marker">
+                      <div class="waypoint-number">${index + 1}</div>
+                    </div>`,
+                    className: 'waypoint-marker',
+                    iconSize: [28, 28],
+                    iconAnchor: [14, 28],
+                  })}
                 >
                   <Popup>
                     <div className="marker-popup">
-                      <strong>{stop.name}</strong>
-                      <p>Stop #{index + 1}</p>
-                      <p className="coordinates">{stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}</p>
+                      <p>Route Waypoint #{index + 1}</p>
+                      <p className="coordinates">{waypoint.lat.toFixed(4)}, {waypoint.lng.toFixed(4)}</p>
                     </div>
                   </Popup>
                 </Marker>
               ))}
+              
+              {/* Render markers for new stops */}
+              {newStops.map((stop, index) => {
+                const stopNumber = (route.majorStops?.length || 0) + index + 1;
+                return (
+                  <Marker
+                    key={stop.id}
+                    position={[stop.lat, stop.lng]}
+                    icon={createStopIcon(stopNumber - 1, selectedStop?.id === stop.id)}
+                    eventHandlers={{
+                      click: () => setSelectedStop(stop),
+                    }}
+                  >
+                    <Popup>
+                      <div className="marker-popup">
+                        <strong>{stop.name}</strong>
+                        <p>Stop #{stopNumber}</p>
+                        <p className="coordinates">{stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}</p>
+                      </div>
+                    </Popup>
+                  </Marker>
+                );
+              })}
               
               {/* Render temporary pin marker */}
               {tempPin && (
@@ -260,6 +512,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
         </div>
 
         <div className="editor-controls-section">
+          {/* Show Add Point form for both new and editing routes */}
           <div className="add-stop-form">
             <h4>Add Point</h4>
             <input
@@ -268,13 +521,19 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
               value={newStopName}
               onChange={(e) => setNewStopName(e.target.value)}
               className="stop-name-input"
+              disabled={isDrawingPath}
               onKeyPress={(e) => {
                 if (e.key === 'Enter' && newStopName.trim()) {
                   alert('Click on the map to place this point');
                 }
               }}
             />
-            <p className="help-text">Enter name, then click on the map to add the point. Use 'Save Path' or 'Add Stops' buttons to finalize.</p>
+            <p className="help-text">
+              {isDrawingPath 
+                ? 'Drawing mode active. Click on the map to add waypoints along the route path.'
+                : 'Enter name, then click on the map to add the point. Use "Create Path" or "Add Stops" buttons to finalize.'
+              }
+            </p>
           </div>
 
           <div className="stops-list-section">
@@ -436,87 +695,186 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
 
             {/* Map Editor Action Buttons - Always visible */}
             <div className="map-editor-actions-compact">
-              <button
-                type="button"
-                className="compact-cancel-btn"
-                onClick={handleClearPin}
-                title="Clear input and remove pinned location"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="compact-save-btn"
-                onClick={handleSaveCoordinates}
-                disabled={false}
-                title="Save route path"
-              >
-                Save Path
-              </button>
-              <button
-                type="button"
-                className="compact-save-btn"
-                onClick={handleAddPinAsStop}
-                disabled={false}
-                title="Add pinned location as a stop"
-              >
-                Add Stops
-              </button>
-            </div>
-            
-            <h4>New Stops ({newStops.length})</h4>
-            {newStops.length === 0 ? (
-              <p className="empty-state">No new stops added yet. Add stops by entering a name and clicking the map.</p>
-            ) : (
-              <div className="stops-list">
-                {newStops.map((stop, index) => (
-                  <div
-                    key={stop.id}
-                    className={`stop-item ${selectedStop?.id === stop.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedStop(stop)}
+              {isDrawingPath ? (
+                // Drawing mode buttons
+                <>
+                  <button
+                    type="button"
+                    className="compact-cancel-btn"
+                    onClick={handleCancelDrawing}
+                    title="Cancel drawing mode"
                   >
-                    <div className="stop-item-number" style={{ backgroundColor: route.color || '#FF5722' }}>
-                      {index + 1}
-                    </div>
-                    <div className="stop-item-info">
-                      <div className="stop-item-name">{stop.name}</div>
-                      <div className="stop-item-coords">
-                        {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="compact-save-btn"
+                    onClick={handleSavePath}
+                    disabled={pathWaypoints.length < 2}
+                    title={pathWaypoints.length < 2 ? "Add at least 2 waypoints" : "Save the drawn path"}
+                  >
+                    Save Path ({pathWaypoints.length})
+                  </button>
+                </>
+              ) : (
+                // Normal mode buttons
+                <>
+                  <button
+                    type="button"
+                    className="compact-cancel-btn"
+                    onClick={handleClearPin}
+                    title="Clear input and remove pinned location"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="compact-save-btn"
+                    onClick={handleCreatePath}
+                    disabled={newStops.length < 2}
+                    title={newStops.length < 2 ? "Add at least 2 stops first" : "Enter drawing mode to create route path"}
+                  >
+                    Create Path
+                  </button>
+                  <button
+                    type="button"
+                    className="compact-save-btn"
+                    onClick={handleAddPinAsStop}
+                    disabled={false}
+                    title="Add pinned location as a stop"
+                  >
+                    Add Stops
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Display path waypoints (always visible, not just in drawing mode) */}
+            {pathWaypoints.length > 0 && (
+              <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #ddd' }}>
+                <h4 style={{ fontSize: '13px', marginBottom: '8px', color: '#d97706' }}>Path Waypoints ({pathWaypoints.length})</h4>
+                <div className="waypoints-list" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                  {pathWaypoints.map((waypoint, index) => (
+                    <div
+                      key={waypoint.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '8px',
+                        backgroundColor: '#fff8f3',
+                        borderRadius: '4px',
+                        marginBottom: '6px',
+                        border: '1px solid #fed7aa'
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '26px',
+                          height: '26px',
+                          backgroundColor: route.color || '#FF5722',
+                          color: '#fff',
+                          borderRadius: '50%',
+                          fontWeight: 'bold',
+                          fontSize: '12px',
+                          flexShrink: 0
+                        }}
+                      >
+                        {index + 1}
                       </div>
-                    </div>
-                    <div className="stop-item-actions">
-                      {index > 0 && (
-                        <button
-                          type="button"
-                          className="move-btn up"
-                          onClick={() => moveStop(index, index - 1)}
-                          title="Move up"
-                        >
-                          ▲
-                        </button>
-                      )}
-                      {index < newStops.length - 1 && (
-                        <button
-                          type="button"
-                          className="move-btn down"
-                          onClick={() => moveStop(index, index + 1)}
-                          title="Move down"
-                        >
-                          ▼
-                        </button>
-                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: '12px', color: '#1f2937', fontWeight: '500' }}>
+                          Waypoint #{index + 1}
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                          📍 {waypoint.lat.toFixed(4)}, {waypoint.lng.toFixed(4)}
+                        </div>
+                      </div>
                       <button
                         type="button"
-                        className="delete-btn"
-                        onClick={() => setConfirmDelete({ type: 'new', id: stop.id, name: stop.name })}
-                        title="Delete stop"
+                        onClick={() => handleDeleteWaypoint(index)}
+                        title="Delete this waypoint"
+                        style={{
+                          padding: '4px 8px',
+                          backgroundColor: '#fee2e2',
+                          color: '#991b1b',
+                          border: 'none',
+                          borderRadius: '3px',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          flexShrink: 0
+                        }}
                       >
                         ✕
                       </button>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
+            )}
+            
+            {/* Show New Stops section when there are new stops being added */}
+            {newStops.length > 0 && (
+              <>
+                <h4>New Stops ({newStops.length})</h4>
+                {newStops.length === 0 ? (
+                  <p className="empty-state">No new stops added yet. Add stops by entering a name and clicking the map.</p>
+                ) : (
+                  <div className="stops-list">
+                    {newStops.map((stop, index) => (
+                      <div
+                        key={stop.id}
+                        className={`stop-item ${selectedStop?.id === stop.id ? 'selected' : ''}`}
+                        onClick={() => setSelectedStop(stop)}
+                      >
+                        <div className="stop-item-number" style={{ backgroundColor: route.color || '#FF5722' }}>
+                          {(route.majorStops?.length || 0) + index + 1}
+                        </div>
+                        <div className="stop-item-info">
+                          <div className="stop-item-name">{stop.name}</div>
+                          <div className="stop-item-coords">
+                            {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}
+                          </div>
+                        </div>
+                        <div className="stop-item-actions">
+                          {index > 0 && (
+                            <button
+                              type="button"
+                              className="move-btn up"
+                              onClick={() => moveStop(index, index - 1)}
+                              title="Move up"
+                            >
+                              ▲
+                            </button>
+                          )}
+                          {index < newStops.length - 1 && (
+                            <button
+                              type="button"
+                              className="move-btn down"
+                              onClick={() => moveStop(index, index + 1)}
+                              title="Move down"
+                            >
+                              ▼
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="delete-btn"
+                            onClick={() => setConfirmDelete({ type: 'new', id: stop.id, name: stop.name })}
+                            title="Delete stop"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

@@ -180,13 +180,22 @@ export function normalizeDocData(doc) {
     return gp;
   };
 
-  // Normalize `coordinates`: can be array of GeoPoints or array of [lat,lng]
+  // Normalize `coordinates`: can be array of GeoPoints, [lat,lng] arrays, or {lat,lng} objects
   if (Array.isArray(normalized.coordinates)) {
     normalized.coordinates = normalized.coordinates.map(item => {
       if (item && typeof item.latitude === 'number' && typeof item.longitude === 'number') {
         return [item.latitude, item.longitude];
       }
+      // Keep {lat, lng} format unchanged
+      if (item && typeof item.lat === 'number' && typeof item.lng === 'number') {
+        return item;
+      }
       return item;
+    });
+    console.log('🔄 normalizeDocData - coordinates after normalization:', {
+      originalLength: (data.coordinates || []).length,
+      normalizedLength: (normalized.coordinates || []).length,
+      format: normalized.coordinates?.[0]
     });
   }
 

@@ -120,6 +120,13 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       setSelectedRoute(normalizedRoute);
       setModalMode(mode);
       if (mode === 'edit' && normalizedRoute) {
+        console.log('📋 openModal - route being set for edit:', {
+          routeId: normalizedRoute?.id,
+          number: normalizedRoute?.number,
+          hasCoordinates: !!normalizedRoute?.coordinates,
+          coordinatesLength: normalizedRoute?.coordinates?.length || 0,
+          coordinates: normalizedRoute?.coordinates
+        });
         setEditingRoute(normalizedRoute);
         setShowMapEditor(false); // Start with form, user clicks "Edit with Map" to see map
       } else if (mode === 'add') {
@@ -177,6 +184,14 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   }, [openModal]);
 
   const handleEditRoute = useCallback((route) => {
+    console.log('✏️ Edit route clicked:', {
+      routeId: route.id,
+      number: route.number,
+      coordinatesLength: route.coordinates?.length || 0,
+      coordinatesType: typeof route.coordinates,
+      coordinates: route.coordinates,
+      allRouteKeys: Object.keys(route)
+    });
     openModal(route, 'edit');
   }, [openModal]);
 
@@ -228,8 +243,36 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       const routesCol = collection(db, 'routes');
       const routesQuery = query(routesCol);
       const unsubRoutes = onSnapshot(routesQuery, (snapshot) => {
-        const data = snapshot.docs.map(doc => normalizeDocData(doc));
-        setRoutes(sortRoutesByNumber(data));
+        const data = snapshot.docs.map(doc => {
+          const normalized = normalizeDocData(doc);
+          console.log('📦 Route loaded from Firestore:', {
+            id: doc.id,
+            number: normalized.number,
+            hasCoordinates: !!normalized.coordinates,
+            coordinatesLength: normalized.coordinates?.length || 0,
+            coordinatesFormat: normalized.coordinates ? normalized.coordinates[0] : 'N/A',
+            fullCoordinates: normalized.coordinates
+          });
+          const finalRoute = { id: doc.id, ...normalized };
+          console.log('📍 Final route object to store in state:', {
+            id: finalRoute.id,
+            number: finalRoute.number,
+            coordinatesInFinal: !!finalRoute.coordinates,
+            coordinatesLength: finalRoute.coordinates?.length || 0,
+            coordinates: finalRoute.coordinates
+          });
+          return finalRoute;
+        });
+        const sorted = sortRoutesByNumber(data);
+        console.log('🎯 Routes stored in state:', {
+          count: sorted.length,
+          routesWithCoordinates: sorted.filter(r => r.coordinates?.length > 0).map(r => ({
+            id: r.id,
+            number: r.number,
+            coordinatesLength: r.coordinates?.length
+          }))
+        });
+        setRoutes(sorted);
       }, (err) => {
         console.error('Routes listener error', err);
       });
@@ -328,14 +371,17 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   }, [editingRoute]);
 
   const handleSaveRouteCoordinates = useCallback((coordinates) => {
-    // Save coordinates as the route path (polyline)
+    // Preserve existing coordinates and append new ones (avoid losing previous waypoints)
+    const existingCoordinates = editingRoute.coordinates || [];
+    const mergedCoordinates = [...existingCoordinates, ...coordinates];
+    
     setEditingRoute(prev => ({
       ...prev,
-      coordinates: coordinates
+      coordinates: mergedCoordinates
     }));
     
-    alert(`✅ Path saved! Route line created between ${coordinates.length} waypoints. You can add more stops or click "Add Route" to finalize.`);
-  }, []);
+    alert(`✅ Path saved! Route line created between ${mergedCoordinates.length} waypoints. You can add more stops or click "Add Route" to finalize.`);
+  }, [editingRoute]);
 
   const handleStopChange = useCallback((index, value) => {
     setEditingRoute(prev => {
@@ -712,312 +758,305 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
               </>
             )}
 
-            {(modalMode === 'add' || modalMode === 'edit') && editingRoute && !showMapEditor && (
+            {(modalMode === 'add' || modalMode === 'edit') && editingRoute && (
               <>
-                {console.log('🔍 Rendering form - editingRoute:', editingRoute, 'modalMode:', modalMode)}
+                {console.log('🔍 Rendering form + map - editingRoute:', editingRoute, 'modalMode:', modalMode)}
                 <div className="modal-header">
                   <h2 className="modal-title">
                     {modalMode === 'add' ? 'Add New Route' : 'Edit Route'}
                   </h2>
                 </div>
 
-                <div className="modal-content-wrapper">
-                {modalMode === 'add' && (
-                  <div style={{
-                    padding: '12px 24px',
-                    background: 'linear-gradient(135deg, #4FA89E 0%, #D4B896 100%)',
-                    borderBottom: '1px solid #e0e0e0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '12px'
+                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'row', minHeight: 0, gap: '0' }}>
+                  {/* Form Section on Left - Fixed width with scroll */}
+                  <div style={{ 
+                    padding: '12px 16px', 
+                    backgroundColor: '#f9f9f9', 
+                    borderRight: '2px solid #ddd', 
+                    overflowY: 'auto',
+                    flex: '0 0 380px',
+                    minHeight: 0
                   }}>
-                    <div style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '6px 12px',
-                      backgroundColor: 'rgba(255,255,255,0.9)',
-                      borderRadius: '6px',
-                      fontSize: '14px',
-                      fontWeight: '600',
-                      color: '#333'
-                    }}>
+                    {modalMode === 'add' && (
                       <div style={{
-                        display: 'inline-flex',
+                        padding: '10px 0',
+                        marginBottom: '15px',
+                        display: 'flex',
                         alignItems: 'center',
-                        padding: '4px 12px',
-                        background: 'linear-gradient(135deg, #4FA89E 0%, #D4B896 100%)',
-                        color: '#fff',
-                        borderRadius: '4px',
-                        fontWeight: 'bold'
+                        gap: '12px'
                       }}>
-                        Route {editingRoute.number}
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 12px',
+                          background: 'linear-gradient(135deg, #4FA89E 0%, #D4B896 100%)',
+                          color: '#fff',
+                          borderRadius: '4px',
+                          fontWeight: 'bold',
+                          fontSize: '13px'
+                        }}>
+                          Route {editingRoute.number}
+                        </div>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                      <div>
+                        <label className="form-label" style={{fontSize: '12px'}}>Route Number</label>
+                        <input
+                          type="text"
+                          value={editingRoute?.number || ''}
+                          onChange={(e) => handleInputChange('number', e.target.value)}
+                          className="form-input"
+                          style={{fontSize: '12px'}}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label" style={{fontSize: '12px'}}>Route Color</label>
+                        <input
+                          type="color"
+                          value={editingRoute?.color || '#FF5722'}
+                          onChange={(e) => handleInputChange('color', e.target.value)}
+                          className="form-input-color"
+                          style={{height: '38px'}}
+                        />
                       </div>
                     </div>
-                  </div>
-                )}
 
-                <div className="edit-form">
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-label">Route Number</label>
+                    <div style={{ marginBottom: '12px' }}>
+                      <label className="form-label" style={{fontSize: '12px'}}>Route Name</label>
                       <input
                         type="text"
-                        value={editingRoute?.number || ''}
-                        onChange={(e) => handleInputChange('number', e.target.value)}
+                        value={editingRoute.name}
+                        onChange={(e) => handleInputChange('name', e.target.value)}
                         className="form-input"
+                        style={{fontSize: '12px'}}
                       />
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Route Color</label>
-                      <input
-                        type="color"
-                        value={editingRoute?.color || '#FF5722'}
-                        onChange={(e) => handleInputChange('color', e.target.value)}
-                        className="form-input-color"
+
+                    <div style={{ marginBottom: '12px' }}>
+                      <label className="form-label" style={{fontSize: '12px'}}>Description</label>
+                      <textarea
+                        value={editingRoute.description}
+                        onChange={(e) => handleInputChange('description', e.target.value)}
+                        className="form-textarea"
+                        rows="1"
+                        style={{fontSize: '12px'}}
                       />
                     </div>
-                  </div>
 
-                  <div className="form-group">
-                    <label className="form-label">Route Name</label>
-                    <input
-                      type="text"
-                      value={editingRoute.name}
-                      onChange={(e) => handleInputChange('name', e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Description</label>
-                    <textarea
-                      value={editingRoute.description}
-                      onChange={(e) => handleInputChange('description', e.target.value)}
-                      className="form-textarea"
-                      rows="3"
-                    />
-                  </div>
-
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-label">Fare Range</label>
-                      <input
-                        type="text"
-                        value={editingRoute.fare}
-                        onChange={(e) => handleInputChange('fare', e.target.value)}
-                        className="form-input"
-                      />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                      <div>
+                        <label className="form-label" style={{fontSize: '12px'}}>Fare Range</label>
+                        <input
+                          type="text"
+                          value={editingRoute.fare}
+                          onChange={(e) => handleInputChange('fare', e.target.value)}
+                          className="form-input"
+                          style={{fontSize: '12px'}}
+                        />
+                      </div>
+                      <div>
+                        <label className="form-label" style={{fontSize: '12px'}}>Frequency</label>
+                        <input
+                          type="text"
+                          value={editingRoute.frequency}
+                          onChange={(e) => handleInputChange('frequency', e.target.value)}
+                          className="form-input"
+                          style={{fontSize: '12px'}}
+                        />
+                      </div>
                     </div>
-                    <div className="form-group">
-                      <label className="form-label">Frequency</label>
+
+                    <div style={{ marginBottom: '12px' }}>
+                      <label className="form-label" style={{fontSize: '12px'}}>Operating Hours</label>
                       <input
                         type="text"
-                        value={editingRoute.frequency}
-                        onChange={(e) => handleInputChange('frequency', e.target.value)}
+                        value={editingRoute.operatingHours}
+                        onChange={(e) => handleInputChange('operatingHours', e.target.value)}
                         className="form-input"
+                        style={{fontSize: '12px'}}
                       />
                     </div>
-                  </div>
 
-                  <div className="form-group">
-                    <label className="form-label">Operating Hours</label>
-                    <input
-                      type="text"
-                      value={editingRoute.operatingHours}
-                      onChange={(e) => handleInputChange('operatingHours', e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <div className="stops-section-header">
-                      <label className="form-label">Major Stops</label>
-                      <button
-                        type="button"
-                        className="map-editor-toggle-btn"
-                        onClick={() => setShowMapEditor(!showMapEditor)}
-                        style={{
-                          padding: '6px 12px',
-                          backgroundColor: '#3b82f6',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          fontSize: '12px',
-                          fontWeight: '600'
-                        }}
-                      >
-                        {showMapEditor ? 'Hide Map' : 'Edit with Map'}
-                      </button>
-                    </div>
-                    
-                    {!showMapEditor && editingRoute && Array.isArray(editingRoute.majorStops) && editingRoute.majorStops.length > 0 && (
-                      <div className="existing-stops-section">
-                        <h5 style={{ marginBottom: '12px', fontSize: '14px', fontWeight: '600', color: '#333' }}>
-                          Major Stops ({editingRoute.majorStops.length})
+                    {editingRoute && Array.isArray(editingRoute.majorStops) && editingRoute.majorStops.length > 0 && (
+                      <div>
+                        <h5 style={{ marginTop: 0, marginBottom: '8px', fontSize: '12px', fontWeight: '600', color: '#333' }}>
+                          Stops ({editingRoute.majorStops.length})
                         </h5>
-                        <div className="existing-stops-list">
-                          {editingRoute.majorStops.map((stop, index) => {
-                            const stopName = typeof stop === 'string' ? stop : (stop && stop.name) ? stop.name : 'Unknown Stop';
-                            const hasCoords = typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined;
-                            
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: '6px' }}>
+                          {editingRoute.majorStops.slice(0, 8).map((stop, index) => {
+                            const stopName = typeof stop === 'string' ? stop : (stop && stop.name) ? stop.name : 'Unknown';
                             return (
                               <div key={index} style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: '12px',
-                                padding: '10px',
-                                backgroundColor: '#f5f5f5',
-                                borderRadius: '6px',
-                                marginBottom: '8px'
+                                gap: '4px',
+                                padding: '4px 6px',
+                                backgroundColor: '#e8f5e9',
+                                borderRadius: '3px',
+                                fontSize: '11px'
                               }}>
                                 <div style={{
                                   display: 'flex',
                                   alignItems: 'center',
                                   justifyContent: 'center',
-                                  width: '28px',
-                                  height: '28px',
+                                  width: '16px',
+                                  height: '16px',
                                   backgroundColor: editingRoute.color,
                                   color: '#fff',
                                   borderRadius: '50%',
                                   fontWeight: 'bold',
-                                  fontSize: '13px',
+                                  fontSize: '9px',
                                   flexShrink: 0
                                 }}>
                                   {index + 1}
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ color: '#333', fontWeight: '500' }}>
-                                    {stopName}
-                                  </div>
-                                  {hasCoords && (
-                                    <div style={{ fontSize: '11px', color: '#999', marginTop: '2px' }}>
-                                      📍 {stop.lat.toFixed(4)}, {stop.lng.toFixed(4)}
-                                    </div>
-                                  )}
-                                </div>
+                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stopName}</span>
                               </div>
                             );
                           })}
+                          {editingRoute.majorStops.length > 8 && (
+                            <div style={{ fontSize: '11px', color: '#666', padding: '4px 6px' }}>
+                              +{editingRoute.majorStops.length - 8} more
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
 
-                    {editingStopLocation && (
-                      <div style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                        display: 'flex',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        zIndex: 2000
-                      }}>
-                        <div style={{
-                          backgroundColor: '#fff',
-                          borderRadius: '8px',
-                          padding: '20px',
-                          width: '90%',
-                          maxWidth: '600px',
-                          maxHeight: '90vh',
-                          overflow: 'auto'
+                    {/* Add Point Controls - Below Form Fields */}
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #ddd' }}>
+                      <label className="form-label" style={{fontSize: '12px', marginBottom: '8px'}}>Add Point</label>
+                      <input
+                        type="text"
+                        placeholder="Stop name (e.g., Lacson & Araneta)"
+                        className="form-input"
+                        style={{fontSize: '12px', marginBottom: '8px'}}
+                      />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
+                        <button style={{
+                          padding: '6px 8px',
+                          backgroundColor: '#4a7c59',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          fontWeight: '600'
                         }}>
-                          <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>
-                            Edit Location: {editingStopLocation.name}
-                          </h3>
-                          <div style={{ height: '400px', marginBottom: '20px', borderRadius: '6px', overflow: 'hidden' }}>
-                            <LeafletMap
-                              editingStopLocation={editingStopLocation}
-                              onLocationSelect={(coords) => {
-                                // Save the location
-                                const updatedStops = [...editingRoute.majorStops];
-                                const stop = updatedStops[editingStopLocation.index];
-                                updatedStops[editingStopLocation.index] = {
-                                  name: editingStopLocation.name,
-                                  lat: coords[0],
-                                  lng: coords[1]
-                                };
-                                setEditingRoute(prev => ({
-                                  ...prev,
-                                  majorStops: updatedStops
-                                }));
-                                // Show toast and highlight
-                                setToastMessage('Location saved! ✓');
-                                setHighlightedStopIndex(editingStopLocation.index);
-                                setTimeout(() => setToastMessage(''), 2000);
-                                setTimeout(() => setHighlightedStopIndex(null), 1500);
-                                setEditingStopLocation(null);
-                              }}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setEditingStopLocation(null)}
-                            style={{
-                              padding: '10px 20px',
-                              backgroundColor: '#999',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '14px',
-                              fontWeight: '600'
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
+                          Cancel
+                        </button>
+                        <button style={{
+                          padding: '6px 8px',
+                          backgroundColor: '#6b8f6f',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          fontWeight: '600'
+                        }}>
+                          Create Path
+                        </button>
+                        <button style={{
+                          padding: '6px 8px',
+                          backgroundColor: '#557a6b',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '11px',
+                          fontWeight: '600'
+                        }}>
+                          Add Stops
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
+
+                  {/* Map Section on Right - Flex to fill remaining space */}
+                  <div style={{ flex: '1 1 auto', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <RouteMapEditor
+                      key={`${editingRoute?.id}-${modalMode}`}
+                      route={editingRoute}
+                      onSave={handleMapEditorSave}
+                      onSaveCoordinates={handleSaveRouteCoordinates}
+                      onCancel={() => setShowMapEditor(false)}
+                      isNewRoute={modalMode === 'add'}
+                      onEditStopName={handleEditStopName}
+                      onRemoveExistingStop={handleRemoveExistingStop}
+                      onEditStopLocation={handleEditStopLocationInMapEditor}
+                    />
                   </div>
-
-                </div>
-              </>
-            )}
-
-            {/* Map-only view when showMapEditor is true */}
-            {showMapEditor && editingRoute && (
-              <>
-                <div className="modal-header">
-                  <h2 className="modal-title">
-                    {modalMode === 'add' ? 'Add New Route - Edit Path' : 'Edit Route - Edit Path'}
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => setShowMapEditor(false)}
-                    style={{
-                      marginLeft: 'auto',
-                      padding: '6px 12px',
-                      backgroundColor: '#6b7280',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: '600'
-                    }}
-                  >
-                    Back to Form
-                  </button>
                 </div>
 
-                <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                  <RouteMapEditor
-                    route={editingRoute}
-                    onSave={handleMapEditorSave}
-                    onSaveCoordinates={handleSaveRouteCoordinates}
-                    onCancel={() => setShowMapEditor(false)}
-                    isNewRoute={modalMode === 'add'}
-                    onEditStopName={handleEditStopName}
-                    onRemoveExistingStop={handleRemoveExistingStop}
-                    onEditStopLocation={handleEditStopLocationInMapEditor}
-                  />
-                </div>
+                {editingStopLocation && (
+                  <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    zIndex: 2000
+                  }}>
+                    <div style={{
+                      backgroundColor: '#fff',
+                      borderRadius: '8px',
+                      padding: '20px',
+                      width: '90%',
+                      maxWidth: '600px',
+                      maxHeight: '90vh',
+                      overflow: 'auto'
+                    }}>
+                      <h3 style={{ marginTop: 0, marginBottom: '20px', color: '#333' }}>
+                        Edit Location: {editingStopLocation.name}
+                      </h3>
+                      <div style={{ height: '400px', marginBottom: '20px', borderRadius: '6px', overflow: 'hidden' }}>
+                        <LeafletMap
+                          editingStopLocation={editingStopLocation}
+                          onLocationSelect={(coords) => {
+                            const updatedStops = [...editingRoute.majorStops];
+                            updatedStops[editingStopLocation.index] = {
+                              name: editingStopLocation.name,
+                              lat: coords[0],
+                              lng: coords[1]
+                            };
+                            setEditingRoute(prev => ({
+                              ...prev,
+                              majorStops: updatedStops
+                            }));
+                            setToastMessage('Location saved! ✓');
+                            setHighlightedStopIndex(editingStopLocation.index);
+                            setTimeout(() => setToastMessage(''), 2000);
+                            setTimeout(() => setHighlightedStopIndex(null), 1500);
+                            setEditingStopLocation(null);
+                          }}
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditingStopLocation(null)}
+                        style={{
+                          padding: '10px 20px',
+                          backgroundColor: '#999',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          fontWeight: '600'
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
 
