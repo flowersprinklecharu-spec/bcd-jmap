@@ -42,45 +42,21 @@ L.Icon.Default.mergeOptions({
 // Custom icons for different marker types
 const createStopIcon = (color = '#3b82f6') => {
   return L.divIcon({
-    html: `<div style="
-      background-color: ${color};
-      color: white;
-      border-radius: 50%;
-      width: 28px;
-      height: 28px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      font-size: 12px;
-      border: 3px solid white;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-    ">●</div>`,
+    html: `<svg width="50" height="65" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 6px rgba(0,0,0,0.4));"><path d="M 20 0 C 12 0 5 7 5 16 C 5 28 20 50 20 50 C 20 50 35 28 35 16 C 35 7 28 0 20 0 Z" fill="${color}" stroke="white" stroke-width="2.5"/><circle cx="20" cy="16" r="6" fill="white"/></svg>`,
     className: 'stop-marker',
-    iconSize: [28, 28],
-    popupAnchor: [0, -14],
+    iconSize: [50, 65],
+    iconAnchor: [25, 65],
+    popupAnchor: [0, -65],
   });
 };
 
-const createLandmarkIcon = (color = '#f59e0b') => {
+const createLandmarkIcon = (color = '#2196F3') => {
   return L.divIcon({
-    html: `<div style="
-      background-color: ${color};
-      color: white;
-      border-radius: 4px;
-      width: 32px;
-      height: 32px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-weight: bold;
-      font-size: 14px;
-      border: 3px solid white;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-    ">🏢</div>`,
+    html: `<svg width="50" height="65" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 6px rgba(0,0,0,0.4));"><path d="M 20 0 C 12 0 5 7 5 16 C 5 28 20 50 20 50 C 20 50 35 28 35 16 C 35 7 28 0 20 0 Z" fill="${color}" stroke="white" stroke-width="2.5"/><circle cx="20" cy="16" r="6" fill="white"/></svg>`,
     className: 'landmark-marker',
-    iconSize: [32, 32],
-    popupAnchor: [0, -16],
+    iconSize: [50, 65],
+    iconAnchor: [25, 65],
+    popupAnchor: [0, -65],
   });
 };
 
@@ -223,6 +199,31 @@ const DestinationMarkerHandler = ({ selectedDestination, userLocation }) => {
   return null;
 };
 
+// Component to track current zoom level and report back to parent
+const ZoomLevelTracker = ({ onZoomChange }) => {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map || !onZoomChange) return;
+
+    // Report initial zoom
+    onZoomChange(map.getZoom());
+
+    // Listen for zoom changes
+    const handleZoom = () => {
+      onZoomChange(map.getZoom());
+    };
+
+    map.on('zoom', handleZoom);
+
+    return () => {
+      map.off('zoom', handleZoom);
+    };
+  }, [map, onZoomChange]);
+
+  return null;
+};
+
 const MapZoomHandler = ({ destination, landmarks, selectedRoute, routes = [] }) => {
   const map = useMap();
 
@@ -314,7 +315,7 @@ const DestinationZoomHandler = ({ searchType = '', selectedDestination }) => {
   return null;
 };
 
-const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true, zoomBounds = null, searchType = '' }) => {
+const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true, zoomBounds = null, searchType = '', searchPhase = 'idle', showOnlyDestination = false, showOnlySuggestedRoutes = false, onZoomChange }) => {
   // Bacolod City bounds (southwest and northeast corners) - tighter bounds
   const bacolodbounds = [
     [10.4050, 122.9150], // Southwest corner
@@ -339,6 +340,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
         zoomControl={false}
       >
         <ZoomControl position="topright" />
+        <ZoomLevelTracker onZoomChange={onZoomChange} />
         {editingStopLocation && <LocationSelectionHandler editingStopLocation={editingStopLocation} onLocationSelect={onLocationSelect} />}
         {zoomBounds && <BoundsHandler bounds={zoomBounds} />}
         <DestinationZoomHandler 
@@ -377,6 +379,16 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
             return null;
           }
 
+          // NEW: Filter routes based on search phase
+          if (showOnlySuggestedRoutes && suggestedRoutes.length > 0) {
+            // Only show routes that are in the suggested list OR the currently selected route
+            const isSuggested = suggestedRoutes.some(suggested => suggested.id === route.id);
+            const isSelected = selectedRoute && selectedRoute.id === route.id;
+            if (!isSuggested && !isSelected) {
+              return null;
+            }
+          }
+
           // Validate that all coordinates are valid [lat, lng] pairs
           const validCoords = route.coordinates.filter(coord => 
             Array.isArray(coord) && 
@@ -400,6 +412,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
             <Polyline
               key={route.id}
               positions={validCoords}
+              className="route-transition"
               pathOptions={{
                 color: route.color || '#3b82f6',
                 weight: weight,
@@ -426,6 +439,23 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
           let pos = getCoordinates(landmark.coordinates);
           
           if (!pos) return null;
+          
+          // NEW: Phase-aware landmark filtering
+          if (showOnlyDestination && destination) {
+            // During search phase, only show the searched destination
+            if (landmark.name.toLowerCase() !== destination.toLowerCase()) {
+              return null;
+            }
+          } else if (showOnlySuggestedRoutes && selectedRoute && selectedRoute.majorStops) {
+            // During suggestions/route view, only show stops of selected route
+            const isInSelectedRoute = selectedRoute.majorStops.some(stop => {
+              const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+              return stopName.toLowerCase() === landmark.name.toLowerCase();
+            });
+            if (!isInSelectedRoute) {
+              return null;
+            }
+          }
           
           // Handle system search: only show the exact destination landmark
           if (searchType === 'system' && destination) {
@@ -479,12 +509,15 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
               key={landmark.id} 
               position={pos}
               icon={isHighlighted ? createLandmarkIcon('#ef4444') : createLandmarkIcon('#f59e0b')}
+              className={isHighlighted && searchPhase === 'viewing-route' ? 'destination-marker-highlight' : ''}
             >
               <Tooltip direction="top" offset={[0, -10]} permanent={isHighlighted}>
                 {landmark.name}
+                {isHighlighted && searchPhase === 'viewing-route' && ' (Your Destination)'}
               </Tooltip>
               <Popup>
                 <strong>{landmark.name}</strong>
+                {isHighlighted && searchPhase === 'viewing-route' && <div style={{ color: '#ef4444', fontWeight: '600', marginTop: '4px' }}>✓ Your Destination</div>}
                 <br />
                 {landmark.category && `${landmark.category} · `}
                 {landmark.address}

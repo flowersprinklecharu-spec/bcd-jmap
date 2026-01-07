@@ -227,7 +227,16 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
         userLocation.lon,
         selectedLandmark.name
       );
+      console.log('🔍 Suggested jeepneys for landmark:', selectedLandmark.name, {
+        landmarkName: selectedLandmark.name,
+        routesCount: routes.length,
+        suggestedCount: suggestedJeepneys.length,
+        suggested: suggestedJeepneys,
+        allRoutes: routes.map(r => ({ id: r.id, number: r.number, name: r.name, majorStops: r.majorStops }))
+      });
       setSuggestedRoutes(suggestedJeepneys);
+    } else {
+      setSuggestedRoutes([]);
     }
   }, [selectedLandmark, userLocation, routes]);
 
@@ -237,6 +246,18 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       onAdminEditingChange(showEditModal || showMapEditor);
     }
   }, [showEditModal, showMapEditor, onAdminEditingChange]);
+
+  // Disable body scroll when modal is open
+  useEffect(() => {
+    if (selectedLandmark) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [selectedLandmark]);
 
   const filteredLandmarks = landmarks.filter(landmark => {
     const matchesSearch = (landmark.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -267,12 +288,12 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   };
 
   // Custom icons
-  const createCustomIcon = (color, letter) => {
+  const createCustomIcon = (color) => {
     return L.divIcon({
-      html: `<div style="background-color: ${color}; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 18px; border: 3px solid white; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">${letter}</div>`,
+      html: `<svg width="40" height="50" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"><path d="M 20 0 C 12 0 5 7 5 16 C 5 28 20 50 20 50 C 20 50 35 28 35 16 C 35 7 28 0 20 0 Z" fill="#2196F3" stroke="white" stroke-width="2"/><circle cx="20" cy="16" r="5" fill="white"/></svg>`,
       className: 'custom-marker',
-      iconSize: [40, 40],
-      iconAnchor: [20, 40],
+      iconSize: [40, 50],
+      iconAnchor: [20, 50],
     });
   };
 
@@ -447,9 +468,9 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
             <div className="modal-header">
               <div 
                 className="modal-landmark-icon"
-                style={{ backgroundColor: selectedLandmark.iconColor || '#2196F3' }}
+                style={{ background: 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)' }}
               >
-                {selectedLandmark.icon || 'L'}
+                📍
               </div>
               <div>
                 <h2 className="modal-title">{selectedLandmark.name}</h2>
@@ -457,18 +478,19 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
               </div>
             </div>
 
-            <div className="modal-info-grid">
-              <div className="info-box">
-                <h4 className="info-label">Category</h4>
-                <p className="info-value">{selectedLandmark.category || 'N/A'}</p>
+            <div className="modal-body">
+              <div className="modal-info-grid">
+                <div className="info-box">
+                  <h4 className="info-label">Category</h4>
+                  <p className="info-value">{selectedLandmark.category || 'N/A'}</p>
+                </div>
               </div>
-            </div>
 
-            <div className="modal-section">
-              <h3 className="section-title">
-                <NavigationIcon /> Interactive Map
-              </h3>
-              <div className="map-view-container">
+              <div className="modal-section">
+                <h3 className="section-title">
+                  <NavigationIcon /> Interactive Map
+                </h3>
+                <div className="map-view-container">
                 {userLocation && 
                  selectedLandmark.coordinates && 
                  Array.isArray(selectedLandmark.coordinates) && 
@@ -498,7 +520,7 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
 
                     <Marker 
                       position={selectedLandmark.coordinates}
-                      icon={createCustomIcon(selectedLandmark.iconColor || '#2196F3', selectedLandmark.icon || 'L')}
+                      icon={createCustomIcon()}
                     >
                       <Popup>
                         <strong>{selectedLandmark.name}</strong><br/>
@@ -564,6 +586,7 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                   <p>⚠️ No direct routes found.</p>
                 </div>
               )}
+            </div>
             </div>
 
             {/* Admin edit/delete removed from public modal */}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -12,7 +12,7 @@ L.Icon.Default.mergeOptions({
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
 });
 
-const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocation, onRemoveExistingStop, onEditStopName, onSaveCoordinates, shouldCreatePath, onCreatePathTriggered }) => {
+const RouteMapEditor = forwardRef(({ route, onSave, onCancel, isNewRoute, onEditStopLocation, onRemoveExistingStop, onEditStopName, onSaveCoordinates, shouldCreatePath, onCreatePathTriggered, pendingStopName, onPendingStopPlaced, onDrawingModeChange, onSavePathClick }, ref) => {
   const [newStops, setNewStops] = useState([]); // Only track new stops being added
   const [newStopName, setNewStopName] = useState('');
   const [selectedStop, setSelectedStop] = useState(null);
@@ -45,8 +45,8 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
       pathWaypointsLoaded: pathWaypoints.length
     });
     
-    if (!isNewRoute && route?.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0 && pathWaypoints.length === 0) {
-      console.log('⚠️ Fallback: Loading waypoints (main effect may have missed)');
+    if (!isNewRoute && route?.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
+      console.log('⚠️ Fallback: Loading waypoints from editingRoute.coordinates');
       const existingWaypoints = route.coordinates
         .map((coord, idx) => {
           // Handle {lat, lng} format
@@ -120,30 +120,48 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
   // Create custom icon for new stops
   const createStopIcon = (index, isSelected) => {
     return L.divIcon({
-      html: `<div class="stop-marker ${isSelected ? 'selected' : ''}">
-        <div class="stop-marker-number">${index + 1}</div>
-      </div>`,
+      html: `<svg width="50" height="65" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 6px rgba(0,0,0,0.4));"><path d="M 20 0 C 12 0 5 7 5 16 C 5 28 20 50 20 50 C 20 50 35 28 35 16 C 35 7 28 0 20 0 Z" fill="#2196F3" stroke="white" stroke-width="2.5"/><text x="20" y="20" font-size="24" font-weight="900" text-anchor="middle" fill="white" dominant-baseline="central">${index + 1}</text></svg>`,
       className: 'custom-marker',
-      iconSize: [32, 32],
-      iconAnchor: [16, 32],
+      iconSize: [50, 65],
+      iconAnchor: [25, 65],
     });
   };
 
-  // Create custom icon for existing stops (using route color, fully visible)
-  const createExistingStopIcon = (index, routeColor = '#999') => {
+  // Create custom icon for existing stops (using blue teardrop)
+  const createExistingStopIcon = (index, routeColor = '#2196F3') => {
     return L.divIcon({
-      html: `<div class="existing-stop-marker" style="color: ${routeColor};">
-        <div class="existing-stop-marker-label">${index + 1}</div>
-      </div>`,
+      html: `<svg width="50" height="65" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 3px 6px rgba(0,0,0,0.4));"><path d="M 20 0 C 12 0 5 7 5 16 C 5 28 20 50 20 50 C 20 50 35 28 35 16 C 35 7 28 0 20 0 Z" fill="${routeColor}" stroke="white" stroke-width="2.5"/><text x="20" y="20" font-size="24" font-weight="900" text-anchor="middle" fill="white" dominant-baseline="central">${index + 1}</text></svg>`,
       className: 'existing-marker',
-      iconSize: [32, 32],
-      iconAnchor: [16, 32],
+      iconSize: [50, 65],
+      iconAnchor: [25, 65],
     });
   };
 
   // Add stop by clicking map
   // Handle map click - add waypoint when in drawing mode, or create temporary pin for stop
   const handleMapClick = (e) => {
+    // When a stop is pending placement (from "Add Point" button with input name)
+    if (pendingStopName && pendingStopName.trim()) {
+      console.log('📍 Preview marker for stop:', pendingStopName, 'coords:', e.latlng.lat, e.latlng.lng);
+      
+      // Show preview marker - don't add to route yet
+      setTempPin({
+        name: pendingStopName.trim(),
+        lat: e.latlng.lat,
+        lng: e.latlng.lng
+      });
+      
+      // Notify parent of preview coordinates for confirmation button
+      if (onPendingStopPlaced) {
+        onPendingStopPlaced({
+          name: pendingStopName.trim(),
+          lat: e.latlng.lat,
+          lng: e.latlng.lng
+        });
+      }
+      return;
+    }
+
     // When in drawing mode, add waypoint to the path
     if (isDrawingPath) {
       console.log('📍 Adding waypoint at', e.latlng.lat, e.latlng.lng);
@@ -210,6 +228,27 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
       console.log('🛑 RouteMapEditor unmounted');
     };
   }, [isNewRoute, route?.id]);
+
+  // Notify parent when drawing mode status or waypoint count changes
+  useEffect(() => {
+    if (onDrawingModeChange) {
+      onDrawingModeChange(isDrawingPath, pathWaypoints.length);
+    }
+  }, [isDrawingPath, pathWaypoints.length, onDrawingModeChange]);
+
+  // Expose savePath method to parent via ref
+  useImperativeHandle(ref, () => ({
+    savePath: () => {
+      if (pathWaypoints.length >= 2) {
+        handleSavePath();
+      } else {
+        alert('Please add at least 2 waypoints on the map before saving');
+      }
+    },
+    clearTempPin: () => {
+      setTempPin(null);
+    }
+  }), [pathWaypoints]);
 
   // Reorder stops (only new stops can be reordered)
   const moveStop = (fromIndex, toIndex) => {
@@ -389,7 +428,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
               />
               
               {/* Render existing stops with route color markers */}
-              {!isNewRoute && (route.majorStops || []).map((stop, index) => {
+              {(route.majorStops || []).map((stop, index) => {
                 const stopName = typeof stop === 'string' ? stop : stop.name;
                 const hasCoords = typeof stop === 'object' && stop.lat !== undefined && stop.lng !== undefined;
                 
@@ -457,9 +496,14 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
               )}
 
               {/* Draw polyline for path waypoints (always visible, not just in drawing mode) */}
-              {pathWaypoints.length > 1 && (
+              {/* Render from editingRoute.coordinates (saved path) OR pathWaypoints (current drawing) */}
+              {((route?.coordinates && route.coordinates.length > 1) || pathWaypoints.length > 1) && (
                 <Polyline 
-                  positions={pathWaypoints.map(w => [w.lat, w.lng])} 
+                  positions={
+                    route?.coordinates && route.coordinates.length > 1
+                      ? route.coordinates.map(c => [c.lat, c.lng])
+                      : pathWaypoints.map(w => [w.lat, w.lng])
+                  } 
                   color="#FF6B35"
                   weight={4}
                   opacity={0.9}
@@ -1102,6 +1146,7 @@ const RouteMapEditor = ({ route, onSave, onCancel, isNewRoute, onEditStopLocatio
       )}
     </div>
   );
-};
+});
 
+RouteMapEditor.displayName = 'RouteMapEditor';
 export default RouteMapEditor;

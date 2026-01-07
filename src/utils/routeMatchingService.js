@@ -146,3 +146,114 @@ export function searchRoutesByNameOrProximity(searchQuery, allRoutes, searchCoor
     nearbyMatches
   };
 }
+
+/**
+ * Map Leaflet zoom level to search radius in kilometers
+ * Higher zoom = more detail = smaller radius
+ * Lower zoom = wider view = larger radius
+ * @param {number} zoomLevel - Leaflet map zoom level (0-18)
+ * @returns {number} Radius in kilometers
+ */
+export function getRadiusFromZoom(zoomLevel) {
+  const zoomToRadius = {
+    8: 20,    // Regional view
+    9: 15,    // Wide regional
+    10: 10,   // Wide city area
+    11: 7,    // City area
+    12: 5,    // City district
+    13: 3,    // Neighborhood area
+    14: 2,    // Small neighborhood
+    15: 1.5,  // Detailed neighborhood
+    16: 1,    // Street block
+    17: 0.7,  // Very detailed street
+    18: 0.5   // Street level
+  };
+
+  // If zoom is between values, interpolate
+  const floorZoom = Math.floor(zoomLevel);
+  const ceilZoom = Math.ceil(zoomLevel);
+  
+  if (floorZoom === ceilZoom) {
+    return zoomToRadius[floorZoom] || 5; // Default 5km if zoom not found
+  }
+  
+  // Linear interpolation between zoom levels
+  const lowerRadius = zoomToRadius[floorZoom] || 5;
+  const upperRadius = zoomToRadius[ceilZoom] || 5;
+  const fraction = zoomLevel - floorZoom;
+  
+  return lowerRadius + (upperRadius - lowerRadius) * fraction;
+}
+
+/**
+ * Find closest distance from user to a route's polyline
+ * @param {Object} userLocation - User's coordinates {lat, lng}
+ * @param {Array} routeCoordinates - Route polyline coordinates [[lat,lng], ...]
+ * @returns {number} Distance in kilometers
+ */
+export function getClosestDistanceToRoute(userLocation, routeCoordinates) {
+  if (!userLocation || !routeCoordinates || !Array.isArray(routeCoordinates)) {
+    return Infinity;
+  }
+
+  let closestDistance = Infinity;
+
+  for (const coord of routeCoordinates) {
+    const distance = haversineDistance(
+      userLocation.lat,
+      userLocation.lng,
+      coord[0],
+      coord[1]
+    );
+    closestDistance = Math.min(closestDistance, distance);
+  }
+
+  return closestDistance;
+}
+
+/**
+ * Enhance routes with GPS data (distance from user, relevance scoring)
+ * @param {Array} routes - Routes found near destination
+ * @param {Object} userLocation - User's GPS coordinates {lat, lng} or null
+ * @param {Object} destination - Destination coordinates {lat, lng}
+ * @returns {Array} Routes with enhanced data, sorted by relevance
+ */
+export function enhanceRoutesWithGPS(routes, userLocation, destination) {
+  if (!userLocation || !destination) {
+    // No GPS or no destination - return routes as-is
+    return routes;
+  }
+
+  return routes
+    .map(route => {
+      // Calculate distance from user to closest point on route
+      const distanceFromUser = getClosestDistanceToRoute(
+        userLocation,
+        route.coordinates || []
+      );
+
+      // Calculate distance from route to destination
+      const distanceToDestination = distanceToPolyline(
+        destination.lat,
+        destination.lng,
+        route.coordinates || []
+      );
+
+      // Calculate relevance score (lower is better)
+      // Weight: 40% accessibility (user to route), 60% route quality (route to destination)
+      const relevanceScore = distanceFromUser * 0.4 + distanceToDestination * 0.6;
+
+      // Estimate walking distance to nearest stop on route (assume avg 150m per 0.1km)
+      const walkingMeters = Math.round(distanceFromUser * 1500);
+
+      return {
+        ...route,
+        distanceFromUser,      // km from user to route
+        distanceToDestination, // km from route to destination
+        relevanceScore,        // Combined score for ranking
+        walkingDistance: walkingMeters, // Meters to walk to boarding point
+        gpsEnhanced: true      // Flag that this has GPS data
+      };
+    })
+    .sort((a, b) => a.relevanceScore - b.relevanceScore); // Sort by accessibility
+}

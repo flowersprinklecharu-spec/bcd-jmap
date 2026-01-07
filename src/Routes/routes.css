@@ -324,6 +324,7 @@
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
+  gap: 0 !important;
 }
 
 .modal-content .route-map-editor {
@@ -673,6 +674,14 @@
   flex-shrink: 0;
   padding: 0.05rem 0.5rem;
   border-bottom: 1px solid #e5e7eb;
+}
+
+/* Scrollable body for view details modal */
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+  min-height: 0;
 }
 
 /* Content wrapper for form and map - stacked vertically */

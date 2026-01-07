@@ -11,6 +11,65 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* NEW: Smooth transition animations for search phases */
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.landmark-transition {
+  animation: fadeIn 0.4s ease-in-out;
+}
+
+.route-highlight-transition {
+  animation: slideInFromRight 0.5s ease-out;
+}
+
+.suggested-route-transition {
+  animation: slideInUp 0.3s ease-out;
+}
+
+@keyframes pulseDestination {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 0 rgba(239, 68, 68, 0.7));
+  }
+  50% {
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 0 8px rgba(239, 68, 68, 0.3));
+  }
+}
+
+.destination-marker-highlight {
+  animation: pulseDestination 2s infinite;
+}
+
 /* App Container */
 .app {
   min-height: 100vh;

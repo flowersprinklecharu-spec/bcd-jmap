@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useContext, useRef } from 'react';
 // Navbar moved to App.js (top-level)
 import RouteMapEditor from './RouteMapEditor';
 import LeafletMap from '../Map/LeafletMap';
@@ -85,6 +85,12 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [showNearbyRoutesSection, setShowNearbyRoutesSection] = useState(false); // Whether to show nearby routes
   const [addPointInput, setAddPointInput] = useState(''); // For Add Point input field
   const [shouldTriggerCreatePath, setShouldTriggerCreatePath] = useState(false); // Trigger path creation from form button
+  const [pendingStopPreview, setPendingStopPreview] = useState(null); // {name, lat, lng} - preview during placement
+  const [isPathDrawingMode, setIsPathDrawingMode] = useState(false); // Track if we're in path drawing mode
+  const [pathWaypointCount, setPathWaypointCount] = useState(0); // Track number of waypoints for save button
+  
+  // Ref to RouteMapEditor to call methods like save path
+  const routeMapEditorRef = useRef(null);
 
   // Memoized filtered and sorted routes
   const filteredRoutes = useMemo(() => {
@@ -168,6 +174,11 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     setEditingStopIndex(null);
     setEditingStopName('');
     setEditingStopLocation(null);
+    setAddPointInput(''); // Clear add point input
+    setHighlightedStopIndex(null); // Clear placement mode
+    setPendingStopPreview(null); // Clear preview
+    setIsPathDrawingMode(false); // Clear drawing mode
+    setPathWaypointCount(0); // Clear waypoint count
   }, []);
 
   // Safe close that warns about unsaved changes
@@ -513,30 +524,57 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   }, [editingRoute]);
 
   // Handler for Add Stops button in form section
+  // Handler for confirming stop placement after preview
+  const handleConfirmStopPlacement = useCallback(() => {
+    if (!pendingStopPreview) {
+      alert('Please place the stop on the map first');
+      return;
+    }
+
+    // Add the stop to the route with the preview coordinates
+    const newStop = {
+      name: addPointInput.trim(),
+      lat: pendingStopPreview.lat,
+      lng: pendingStopPreview.lng
+    };
+
+    const updatedRoute = {
+      ...editingRoute,
+      majorStops: [...(editingRoute.majorStops || []), newStop]
+    };
+
+    setEditingRoute(updatedRoute);
+    setHasUnsavedChanges(true);
+
+    // Clear the placement mode and inputs
+    setHighlightedStopIndex(null);
+    setPendingStopPreview(null);
+    setAddPointInput('');
+    
+    // Clear the temporary pin from the map
+    routeMapEditorRef.current?.clearTempPin();
+
+    setToastMessage(`✓ Stop "${newStop.name}" added successfully!`);
+    setTimeout(() => setToastMessage(''), 3000);
+  }, [pendingStopPreview, addPointInput, editingRoute]);
+
+  // Handler for adding stops in form section
   const handleAddStopsFormButton = useCallback(() => {
     if (!addPointInput.trim()) {
       alert('Please enter a stop name');
       return;
     }
 
-    // Get the current map location or use a default
-    // For now, we'll just add the stop with the name and let the user place it on the map
-    const newStop = {
-      name: addPointInput.trim(),
-      lat: 10.6750, // Default to Bacolod center
-      lng: 122.9600
-    };
+    // Activate placement mode - don't add to route yet
+    // Use -1 to indicate a new/pending stop that needs map placement
+    setHighlightedStopIndex(-1);
+    setPendingStopPreview(null); // Clear any previous preview
 
-    setEditingRoute(prev => ({
-      ...prev,
-      majorStops: [...(prev.majorStops || []), newStop]
-    }));
+    // Map is already visible in add/edit mode (displayed side-by-side with form)
+    // No need to call setShowMapEditor(true) - it causes state conflicts
 
-    // Clear the input
-    setAddPointInput('');
-    setHasUnsavedChanges(true);
-    setToastMessage(`✓ Stop "${newStop.name}" added!`);
-    setTimeout(() => setToastMessage(''), 2000);
+    setToastMessage(`✓ Click on the map to place "${addPointInput.trim()}" stop. You can click multiple times to adjust the location.`);
+    setTimeout(() => setToastMessage(''), 4000);
   }, [addPointInput]);
 
   // Handler for Create Path button in form section
@@ -549,6 +587,14 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     // Trigger the RouteMapEditor's path creation by toggling the flag
     setShouldTriggerCreatePath(true);
   }, [editingRoute]);
+
+  // Handler for Save Path button in form section
+  // Calls the RouteMapEditor to save current waypoints to editingRoute.coordinates
+  const handleSavePathFormButton = useCallback(() => {
+    if (routeMapEditorRef.current && routeMapEditorRef.current.savePath) {
+      routeMapEditorRef.current.savePath();
+    }
+  }, []);
 
   return (
     <div className="routes-page">
@@ -749,7 +795,8 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                   </div>
                 </div>
 
-                <div className="modal-info-grid">
+                <div className="modal-body">
+                  <div className="modal-info-grid">
                   <div className="info-box">
                     <h4 className="info-label">Fare</h4>
                     <p className="info-value">{selectedRoute?.fare || 'N/A'}</p>
@@ -790,6 +837,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                       <p style={{ color: '#999', fontStyle: 'italic' }}>No major stops defined</p>
                     )}
                   </div>
+                </div>
                 </div>
 
 
@@ -975,30 +1023,37 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                         onChange={(e) => setAddPointInput(e.target.value)}
                         onKeyPress={(e) => {
                           if (e.key === 'Enter') {
-                            handleAddStopsFormButton();
+                            if (highlightedStopIndex === -1 && pendingStopPreview) {
+                              // If placement mode is active with a preview, confirm it
+                              handleConfirmStopPlacement();
+                            } else {
+                              // Otherwise, activate placement mode
+                              handleAddStopsFormButton();
+                            }
                           }
                         }}
                       />
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
                         <button 
-                          onClick={handleCreatePathFormButton}
+                          onClick={isPathDrawingMode ? handleSavePathFormButton : handleCreatePathFormButton}
                           style={{
                           padding: '6px 8px',
-                          backgroundColor: '#6b8f6f',
+                          backgroundColor: isPathDrawingMode && pathWaypointCount >= 2 ? '#4caf50' : '#6b8f6f',
                           color: '#fff',
                           border: 'none',
                           borderRadius: '4px',
-                          cursor: 'pointer',
+                          cursor: isPathDrawingMode && pathWaypointCount < 2 ? 'not-allowed' : 'pointer',
                           fontSize: '11px',
-                          fontWeight: '600'
+                          fontWeight: '600',
+                          opacity: isPathDrawingMode && pathWaypointCount < 2 ? 0.6 : 1
                         }}>
-                          Create Path
+                          {isPathDrawingMode ? `Save Path (${pathWaypointCount})` : 'Create Path'}
                         </button>
                         <button 
-                          onClick={handleAddStopsFormButton}
+                          onClick={highlightedStopIndex === -1 && pendingStopPreview ? handleConfirmStopPlacement : handleAddStopsFormButton}
                           style={{
                           padding: '6px 8px',
-                          backgroundColor: '#557a6b',
+                          backgroundColor: highlightedStopIndex === -1 && pendingStopPreview ? '#4caf50' : '#557a6b',
                           color: '#fff',
                           border: 'none',
                           borderRadius: '4px',
@@ -1006,7 +1061,7 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                           fontSize: '11px',
                           fontWeight: '600'
                         }}>
-                          Add Stops
+                          {highlightedStopIndex === -1 && pendingStopPreview ? 'Confirm Stop' : 'Add Stops'}
                         </button>
                       </div>
                     </div>
@@ -1015,17 +1070,35 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                   {/* Map Section on Right - Flex to fill remaining space */}
                   <div style={{ flex: '1 1 auto', overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                     <RouteMapEditor
+                      ref={routeMapEditorRef}
                       key={`${editingRoute?.id}-${modalMode}`}
                       route={editingRoute}
                       onSave={handleMapEditorSave}
                       onSaveCoordinates={handleSaveRouteCoordinates}
-                      onCancel={() => setShowMapEditor(false)}
+                      onCancel={() => {
+                        setShowMapEditor(false);
+                        setHighlightedStopIndex(null);
+                      }}
                       isNewRoute={modalMode === 'add'}
                       onEditStopName={handleEditStopName}
                       onRemoveExistingStop={handleRemoveExistingStop}
                       onEditStopLocation={handleEditStopLocationInMapEditor}
                       shouldCreatePath={shouldTriggerCreatePath}
                       onCreatePathTriggered={() => setShouldTriggerCreatePath(false)}
+                      pendingStopName={highlightedStopIndex === -1 ? addPointInput : null}
+                      onPendingStopPlaced={(previewCoords) => {
+                        // Store preview coordinates so we can show confirmation button
+                        setPendingStopPreview(previewCoords);
+                      }}
+                      onDrawingModeChange={(isDrawing, waypointCount) => {
+                        // Track drawing mode status and waypoint count for "Save Path" button
+                        setIsPathDrawingMode(isDrawing);
+                        setPathWaypointCount(waypointCount || 0);
+                      }}
+                      onSavePathClick={() => {
+                        // This callback lets RouteMapEditor tell us when the user clicks "Save Path" button
+                        // But the actual save is handled by RouteMapEditor calling onSaveCoordinates
+                      }}
                     />
                   </div>
                 </div>

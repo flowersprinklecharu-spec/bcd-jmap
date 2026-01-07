@@ -42,12 +42,10 @@ const LandmarkMapEditor = ({ onSave, onCancel, existingLandmarks = [], editingLa
   // Create custom icon
   const createLandmarkMarker = (isSelected = false) => {
     return L.divIcon({
-      html: `<div class="landmark-marker ${isSelected ? 'selected' : ''}">
-        <div class="landmark-marker-pin">📍</div>
-      </div>`,
+      html: `<svg width="40" height="50" viewBox="0 0 40 50" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"><path d="M 20 0 C 12 0 5 7 5 16 C 5 28 20 50 20 50 C 20 50 35 28 35 16 C 35 7 28 0 20 0 Z" fill="#2196F3" stroke="white" stroke-width="2"/><circle cx="20" cy="16" r="5" fill="white"/></svg>`,
       className: 'custom-landmark-marker',
-      iconSize: [40, 40],
-      iconAnchor: [20, 40],
+      iconSize: [40, 50],
+      iconAnchor: [20, 50],
     });
   };
 

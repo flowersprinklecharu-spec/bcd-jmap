@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db, normalizeDocData } from '../firebase';
 import { geocodeAddress } from '../utils/geocodingService';
-import { findNearbyRoutes, formatDistance, searchRoutesByNameOrProximity } from '../utils/routeMatchingService';
+import { findNearbyRoutes, formatDistance, searchRoutesByNameOrProximity, getRadiusFromZoom, enhancedRoutesWithGPS } from '../utils/routeMatchingService';
 import { calculateBounds, addPaddingToBounds } from '../utils/boundsCalculator';
 // Navbar moved to App.js (top-level)
 import LeafletMap from '../Map/LeafletMap';
@@ -47,6 +47,13 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [selectedDestinationCoords, setSelectedDestinationCoords] = useState(null);
   const [zoomBounds, setZoomBounds] = useState(null); // For smart zoom on route selection
   const [searchType, setSearchType] = useState(''); // 'system' for found in DB, 'geocoded' for API search
+  const [currentZoom, setCurrentZoom] = useState(12); // Current map zoom level (for zoom-based radius)
+  const [gpsPermission, setGpsPermission] = useState(null); // 'granted' | 'denied' | null
+  
+  // NEW: Search phase control states (additive, non-breaking)
+  const [searchPhase, setSearchPhase] = useState('idle'); // 'idle' | 'searching' | 'viewing-suggestions' | 'viewing-route'
+  const [showOnlyDestination, setShowOnlyDestination] = useState(false);
+  const [showOnlySuggestedRoutes, setShowOnlySuggestedRoutes] = useState(false);
   const routeDetailsRef = useRef(null);
 
   // Calculate distance between two coordinates using Haversine formula
@@ -272,6 +279,36 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     }
   }, [showRouteDetails]);
 
+  // Auto-transition from details to map after 2 seconds
+  useEffect(() => {
+    if (showRouteDetails && selectedRoute && searchPhase === 'viewing-route') {
+      console.log('⏱️ Starting 2-second timer for auto-transition');
+      
+      // Set new timer to auto-hide details and show map
+      const timer = setTimeout(() => {
+        console.log('⏱️ Auto-transitioning from details to map view');
+        setShowRouteDetails(false);
+        // Map will automatically display now
+      }, 2000); // 2 second delay
+      
+      return () => {
+        clearTimeout(timer);
+      };
+    }
+  }, [showRouteDetails, selectedRoute, searchPhase]);
+
+  // NEW: Auto-scroll to suggestions when phase changes to viewing-suggestions
+  useEffect(() => {
+    if (searchPhase === 'viewing-suggestions') {
+      const suggestionsSection = document.querySelector('.suggested-jeepneys');
+      if (suggestionsSection) {
+        setTimeout(() => {
+          suggestionsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 300);
+      }
+    }
+  }, [searchPhase]);
+
   const triggerFindRoute = (destinationName) => {
     if (!destinationName || jeepneyRoutes.length === 0) return;
 
@@ -320,8 +357,16 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       searchMethod = 'proximity-search';
       console.log('✅ Using Option 2: Proximity search for routes near landmark', matchingLandmark.coordinates);
       
-      const nearbyRoutes = findNearbyRoutes(matchingLandmark.coordinates, jeepneyRoutes, 0.5);
-      console.log(`🎯 Found ${nearbyRoutes.length} routes near landmark`);
+      // Use zoom-based radius
+      const radiusKm = getRadiusFromZoom(currentZoom);
+      let nearbyRoutes = findNearbyRoutes(matchingLandmark.coordinates, jeepneyRoutes, radiusKm);
+      console.log(`🎯 Found ${nearbyRoutes.length} routes within ${radiusKm.toFixed(2)}km radius`);
+      
+      // Enhance with GPS data if user location is available
+      if (userLocation && gpsPermission === 'granted') {
+        nearbyRoutes = enhancedRoutesWithGPS(nearbyRoutes, userLocation, matchingLandmark.coordinates);
+        console.log('📍 Routes enhanced with GPS distance data');
+      }
       
       if (nearbyRoutes.length > 0) {
         routesToSuggest = nearbyRoutes;
@@ -360,6 +405,15 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     console.log(`🏷️ Search type: ${searchType || 'unknown'}`);
 
     setSuggestedRoutes(routesToSuggest);
+    
+    // NEW: Transition to viewing suggestions phase after routes are found
+    if (routesToSuggest.length > 0) {
+      setTimeout(() => {
+        setSearchPhase('viewing-suggestions');
+        setShowOnlyDestination(false);
+        setShowOnlySuggestedRoutes(true);
+      }, 300); // Brief delay for animation
+    }
     
     // Auto-select the closest route
     if (routesToSuggest.length > 0) {
@@ -425,6 +479,11 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     if (!destination) return;
 
     console.log('🔍 handleFindRoute called with:', destination);
+    
+    // NEW: Set search phase
+    setSearchPhase('searching');
+    setShowOnlyDestination(true);
+    setShowOnlySuggestedRoutes(false);
 
     // Inline coordinate finding logic
     let coords = null;
@@ -493,8 +552,17 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
         console.log('✅ Geocoded coordinates:', geocodedCoords);
         coords = [geocodedCoords.lat, geocodedCoords.lng];
         
-        // Find nearby routes using geocoded location
-        const nearbyRoutes = findNearbyRoutes(geocodedCoords, jeepneyRoutes, 0.5);
+        // Find nearby routes using geocoded location with zoom-based radius
+        const radiusKm = getRadiusFromZoom(currentZoom);
+        let nearbyRoutes = findNearbyRoutes(geocodedCoords, jeepneyRoutes, radiusKm);
+        console.log(`🛣️ Found ${nearbyRoutes.length} routes within ${radiusKm.toFixed(2)}km radius`);
+        
+        // Enhance with GPS data if user location is available
+        if (userLocation && gpsPermission === 'granted') {
+          nearbyRoutes = enhancedRoutesWithGPS(nearbyRoutes, userLocation, geocodedCoords);
+          console.log('📍 Routes enhanced with GPS distance data');
+        }
+        
         if (nearbyRoutes.length > 0) {
           console.log('🛣️ Found nearby routes:', nearbyRoutes);
           setSuggestedRoutes(nearbyRoutes);
@@ -527,6 +595,13 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
 
     // Trigger route finding
     triggerFindRoute(destination);
+    
+    // NEW: Transition to suggestions phase after a brief moment for smooth UX
+    setTimeout(() => {
+      setSearchPhase('viewing-suggestions');
+      setShowOnlyDestination(false);
+      setShowOnlySuggestedRoutes(true);
+    }, 800);
   };
 
   return (
@@ -567,6 +642,10 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                             setExpandedRouteId(null);
                             setSuggestedRoutes([]);
                             setSearchType('');
+                            // NEW: Reset search phases
+                            setSearchPhase('idle');
+                            setShowOnlyDestination(false);
+                            setShowOnlySuggestedRoutes(false);
                           }}
                           title="Clear search"
                         >
@@ -677,12 +756,17 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                   zoomBounds={zoomBounds}
                   searchType={searchType}
                   onRouteClick={(route) => { setSelectedRoute(route); setShowRouteDetails(true); }}
+                  onZoomChange={(zoom) => setCurrentZoom(zoom)}
+                  // NEW: Pass phase control props
+                  searchPhase={searchPhase}
+                  showOnlyDestination={showOnlyDestination}
+                  showOnlySuggestedRoutes={showOnlySuggestedRoutes}
                 />
               </div>
             </div>
 
             {suggestedRoutes.length > 0 && (
-              <div className="card">
+              <div className="card suggested-jeepneys">
                 <h2 className="card-title">Available Jeepneys to {destination}</h2>
                 
                 {/* Search type feedback message */}
@@ -736,6 +820,19 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                         onClick={() => {
                           setSelectedRoute(route);
                           setExpandedRouteId(expandedRouteId === route.id ? null : route.id);
+                          // NEW: Transition to viewing route details
+                          setSearchPhase('viewing-route');
+                          setShowRouteDetails(true);
+                          setShowOnlySuggestedRoutes(true);
+                          
+                          // Auto-zoom to show entire route
+                          if (route.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
+                            const bounds = calculateBounds(route.coordinates);
+                            if (bounds) {
+                              console.log('🎯 Auto-zooming to route:', route.number, bounds);
+                              setZoomBounds(bounds);
+                            }
+                          }
                         }}
                       >
                         <div 
