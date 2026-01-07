@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db, normalizeDocData } from '../firebase';
 import { geocodeAddress } from '../utils/geocodingService';
-import { findNearbyRoutes, formatDistance, searchRoutesByNameOrProximity, getRadiusFromZoom, enhancedRoutesWithGPS } from '../utils/routeMatchingService';
+import { findNearbyRoutes, formatDistance, searchRoutesByNameOrProximity, getRadiusFromZoom, enhanceRoutesWithGPS } from '../utils/routeMatchingService';
 import { calculateBounds, addPaddingToBounds } from '../utils/boundsCalculator';
 // Navbar moved to App.js (top-level)
 import LeafletMap from '../Map/LeafletMap';
@@ -190,12 +190,27 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
           if (data.coordinates) {
             // If coordinates is an array (polyline), validate each point
             if (Array.isArray(data.coordinates)) {
-              const validCoords = data.coordinates.filter(coord => 
-                Array.isArray(coord) && 
-                coord.length === 2 && 
-                typeof coord[0] === 'number' && 
-                typeof coord[1] === 'number'
-              );
+              const validCoords = data.coordinates.filter(coord => {
+                // Accept array format: [lat, lng]
+                if (Array.isArray(coord) && coord.length === 2 && 
+                    typeof coord[0] === 'number' && typeof coord[1] === 'number') {
+                  return true;
+                }
+                // Accept object format: {lat, lng} for backwards compatibility
+                if (coord && typeof coord.lat === 'number' && typeof coord.lng === 'number') {
+                  return true;
+                }
+                return false;
+              }).map(coord => {
+                // Convert {lat, lng} to [lat, lng] for consistency
+                if (Array.isArray(coord)) {
+                  return coord;
+                } else if (coord && typeof coord.lat === 'number') {
+                  return [coord.lat, coord.lng];
+                }
+                return coord;
+              });
+              
               if (validCoords.length > 0) {
                 data.coordinates = validCoords;
                 console.log(`✅ Route ${data.number}: Validated ${validCoords.length} coordinates`);
@@ -364,7 +379,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       
       // Enhance with GPS data if user location is available
       if (userLocation && gpsPermission === 'granted') {
-        nearbyRoutes = enhancedRoutesWithGPS(nearbyRoutes, userLocation, matchingLandmark.coordinates);
+        nearbyRoutes = enhanceRoutesWithGPS(nearbyRoutes, userLocation, matchingLandmark.coordinates);
         console.log('📍 Routes enhanced with GPS distance data');
       }
       
@@ -559,7 +574,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
         
         // Enhance with GPS data if user location is available
         if (userLocation && gpsPermission === 'granted') {
-          nearbyRoutes = enhancedRoutesWithGPS(nearbyRoutes, userLocation, geocodedCoords);
+          nearbyRoutes = enhanceRoutesWithGPS(nearbyRoutes, userLocation, geocodedCoords);
           console.log('📍 Routes enhanced with GPS distance data');
         }
         

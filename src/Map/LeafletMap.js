@@ -446,13 +446,30 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
             if (landmark.name.toLowerCase() !== destination.toLowerCase()) {
               return null;
             }
-          } else if (showOnlySuggestedRoutes && selectedRoute && selectedRoute.majorStops) {
-            // During suggestions/route view, only show stops of selected route
-            const isInSelectedRoute = selectedRoute.majorStops.some(stop => {
-              const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-              return stopName.toLowerCase() === landmark.name.toLowerCase();
-            });
-            if (!isInSelectedRoute) {
+          } else if (showOnlySuggestedRoutes && suggestedRoutes.length > 0) {
+            // During suggestions/route view, show stops of ANY suggested route (or selected route)
+            let isInAnyRoute = false;
+            
+            // Check if landmark is in the selected route
+            if (selectedRoute && selectedRoute.majorStops) {
+              isInAnyRoute = selectedRoute.majorStops.some(stop => {
+                const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+                return stopName.toLowerCase() === landmark.name.toLowerCase();
+              });
+            }
+            
+            // If not in selected route, check all suggested routes
+            if (!isInAnyRoute) {
+              isInAnyRoute = suggestedRoutes.some(route => {
+                if (!route.majorStops) return false;
+                return route.majorStops.some(stop => {
+                  const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+                  return stopName.toLowerCase() === landmark.name.toLowerCase();
+                });
+              });
+            }
+            
+            if (!isInAnyRoute) {
               return null;
             }
           }

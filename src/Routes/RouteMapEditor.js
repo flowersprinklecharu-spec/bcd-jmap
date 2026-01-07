@@ -349,11 +349,11 @@ const RouteMapEditor = forwardRef(({ route, onSave, onCancel, isNewRoute, onEdit
       return;
     }
     console.log('💾 Saving path with', pathWaypoints.length, 'waypoints');
-    // Convert waypoints to coordinates format
-    const coordinates = pathWaypoints.map(waypoint => ({
-      lat: waypoint.lat,
-      lng: waypoint.lng
-    }));
+    // Convert waypoints to coordinates format as [lat, lng] arrays
+    const coordinates = pathWaypoints.map(waypoint => [
+      waypoint.lat,
+      waypoint.lng
+    ]);
     onSaveCoordinates(coordinates);
     // Exit drawing mode
     setIsDrawingPath(false);
