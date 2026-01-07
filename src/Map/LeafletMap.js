@@ -31,6 +31,27 @@ const getCoordinates = (coords) => {
   return null;
 };
 
+// Helper function for fuzzy/partial matching of stop names
+// Matches if one string contains the other (case-insensitive)
+// Example: "Advertisist Medical Center - Bacolod" matches "Advertisist Medical Center"
+const stopNameMatches = (stopName, landmarkName) => {
+  if (!stopName || !landmarkName) return false;
+  
+  const stop = stopName.toLowerCase().trim();
+  const landmark = landmarkName.toLowerCase().trim();
+  
+  // Exact match
+  if (stop === landmark) return true;
+  
+  // One contains the other (for cases like "Name - City" vs "Name")
+  if (stop.includes(landmark) || landmark.includes(stop)) return true;
+  
+  // Check if landmark name is a substring at the start (for partial matches)
+  if (stop.startsWith(landmark) || landmark.startsWith(stop)) return true;
+  
+  return false;
+};
+
 // Fix default icon paths
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -454,7 +475,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
             if (selectedRoute && selectedRoute.majorStops) {
               isInAnyRoute = selectedRoute.majorStops.some(stop => {
                 const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-                return stopName.toLowerCase() === landmark.name.toLowerCase();
+                return stopNameMatches(stopName, landmark.name);
               });
             }
             
@@ -464,7 +485,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
                 if (!route.majorStops) return false;
                 return route.majorStops.some(stop => {
                   const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-                  return stopName.toLowerCase() === landmark.name.toLowerCase();
+                  return stopNameMatches(stopName, landmark.name);
                 });
               });
             }
@@ -486,7 +507,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
             // Check if landmark is a major stop of the selected route
             const isInSelectedRoute = selectedRoute.majorStops.some(stop => {
               const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-              return stopName.toLowerCase() === landmark.name.toLowerCase();
+              return stopNameMatches(stopName, landmark.name);
             });
             
             if (!isInSelectedRoute) {
@@ -513,7 +534,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
           if (isFocusedMode && (!selectedRoute.majorStops || 
               !selectedRoute.majorStops.some(stop => {
                 const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-                return stopName.toLowerCase() === landmark.name.toLowerCase();
+                return stopNameMatches(stopName, landmark.name);
               }))) {
             return null;
           }
@@ -553,9 +574,9 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
             if (typeof stop === 'object' && stop?.lat !== undefined && stop?.lng !== undefined) {
               pos = [stop.lat, stop.lng];
             } else {
-              // Fall back to finding a matching landmark
+              // Fall back to finding a matching landmark using fuzzy matching
               const matchingLandmark = landmarks.find(lm => 
-                lm.name.toLowerCase() === stopName.toLowerCase()
+                stopNameMatches(stopName, lm.name)
               );
               if (matchingLandmark) {
                 pos = getCoordinates(matchingLandmark.coordinates);
@@ -568,7 +589,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
               
               // System search: only show the exact destination
               if (searchType === 'system' && destination) {
-                if (stopName.toLowerCase() !== destination.toLowerCase()) {
+                if (!stopNameMatches(stopName, destination)) {
                   return null; // Skip this stop
                 }
               }
@@ -587,7 +608,7 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
                 }
               }
               
-              const isDestination = destination.toLowerCase() === stopName.toLowerCase();
+              const isDestination = stopNameMatches(stopName, destination);
               return (
                 <Marker 
                   key={`stop-${index}`}
