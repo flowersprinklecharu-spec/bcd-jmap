@@ -222,23 +222,74 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
 
   const handleSaveRoute = useCallback(async () => {
     try {
+      // Validate and sanitize route data before saving
+      const dataToSave = {
+        ...editingRoute,
+        // Convert coordinates from [lat, lng] arrays to {lat, lng} objects for Firestore
+        // (Firestore doesn't support nested arrays)
+        coordinates: Array.isArray(editingRoute?.coordinates) 
+          ? editingRoute.coordinates
+              .filter(c => {
+                // Only keep valid [lat, lng] pairs
+                return Array.isArray(c) && c.length === 2 && 
+                       typeof c[0] === 'number' && typeof c[1] === 'number' &&
+                       !isNaN(c[0]) && !isNaN(c[1]);
+              })
+              .map(c => ({ lat: c[0], lng: c[1] }))
+          : [],
+        // Ensure majorStops is an array of strings or stop objects (not nested arrays)
+        majorStops: Array.isArray(editingRoute?.majorStops)
+          ? editingRoute.majorStops.filter(stop => {
+              // Skip any nested arrays
+              if (Array.isArray(stop)) return false;
+              // Keep strings and objects
+              if (typeof stop === 'string') return stop.trim().length > 0;
+              if (typeof stop === 'object' && stop !== null) {
+                // Valid stop object should have at least a name
+                return stop.name && typeof stop.name === 'string';
+              }
+              return false;
+            })
+          : []
+      };
+
+      // Validate stops have proper coordinates if they're objects
+      const validatedStops = (dataToSave?.majorStops || []).map((stop, idx) => {
+        if (typeof stop === 'object' && stop !== null) {
+          // Stop is an object - validate it has lat/lng
+          if (typeof stop.lat !== 'number' || typeof stop.lng !== 'number') {
+            console.warn(`⚠️ Stop ${idx} (${stop.name}) missing or invalid coordinates:`, stop);
+          }
+          return stop;
+        }
+        // Stop is a string - that's fine
+        return stop;
+      });
+
       // Log the exact data being saved for debugging
       console.log('🔍 DEBUG: handleSaveRoute called');
       console.log('  Mode:', modalMode);
       console.log('  editingRoute.id:', editingRoute?.id);
       console.log('  editingRoute.number:', editingRoute?.number);
       console.log('  editingRoute.name:', editingRoute?.name);
-      console.log('  editingRoute.majorStops:', editingRoute?.majorStops);
-      console.log('  editingRoute.majorStops length:', editingRoute?.majorStops?.length);
-      console.log('  editingRoute.coordinates:', editingRoute?.coordinates);
-      console.log('  editingRoute.coordinates length:', editingRoute?.coordinates?.length);
-      console.log('  Full editingRoute object:', JSON.stringify(editingRoute, null, 2));
+      console.log('  editingRoute.majorStops (original):', editingRoute?.majorStops);
+      console.log('  dataToSave.majorStops (sanitized):', dataToSave?.majorStops);
+      console.log('  majorStops validation:', validatedStops.map((s, i) => ({
+        index: i,
+        type: typeof s,
+        name: typeof s === 'string' ? s : s?.name,
+        hasLat: typeof s === 'object' ? typeof s.lat : 'N/A',
+        hasLng: typeof s === 'object' ? typeof s.lng : 'N/A'
+      })));
+      console.log('  dataToSave.coordinates length:', dataToSave?.coordinates?.length);
+      console.log('  dataToSave.majorStops length:', dataToSave?.majorStops?.length);
+      console.log('  Full dataToSave object:', JSON.stringify(dataToSave, null, 2));
       
       if (modalMode === 'add') {
-        await saveRoute(editingRoute);
+        await saveRoute(dataToSave);
         alert('✅ Route added successfully!');
       } else if (modalMode === 'edit') {
-        await saveRoute(editingRoute);
+        await saveRoute(dataToSave);
         alert('✅ Route updated successfully!');
       }
       // Clear draft and unsaved changes on successful save

@@ -337,10 +337,10 @@ const DestinationZoomHandler = ({ searchType = '', selectedDestination }) => {
 };
 
 const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true, zoomBounds = null, searchType = '', searchPhase = 'idle', showOnlyDestination = false, showOnlySuggestedRoutes = false, onZoomChange }) => {
-  // Bacolod City bounds (southwest and northeast corners) - tighter bounds
+  // Expanded bounds to include Bacolod, Binalbagan, and Isabela municipalities (wider scope)
   const bacolodbounds = [
-    [10.4050, 122.9150], // Southwest corner
-    [10.8900, 123.1100]  // Northeast corner
+    [10.20, 122.80],     // Southwest corner (covers Binalbagan and southern area)
+    [10.90, 123.50]      // Northeast corner (covers Isabela and eastern area)
   ];
   
   const bacolodboundsCenter = [10.6475, 123.0125]; // Center of Bacolod City
@@ -350,8 +350,8 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
     <div className="leaflet-map" style={{ height: '100%', width: '100%', minHeight: '500px' }}>
       <MapContainer 
         center={center} 
-        zoom={12}
-        minZoom={11}
+        zoom={10}
+        minZoom={8}
         maxZoom={18}
         maxBounds={bacolodbounds}
         maxBoundsViscosity={1.0}
@@ -396,52 +396,107 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
 
         {/* Render route polylines for routes with coordinates */}
         {routes && routes.map(route => {
-          if (!route.coordinates || !Array.isArray(route.coordinates) || route.coordinates.length < 2) {
-            return null;
-          }
+          try {
+            // NEW: Validate majorStops have proper coordinates
+            if (route.majorStops && Array.isArray(route.majorStops)) {
+              route.majorStops.forEach((stop, idx) => {
+                if (typeof stop === 'object' && stop !== null) {
+                  if (typeof stop.lat !== 'number' || typeof stop.lng !== 'number') {
+                    console.warn(`⚠️ Route ${route.number} - Stop ${idx} (${stop.name}) has invalid coordinates:`, {
+                      hasLat: typeof stop.lat,
+                      hasLng: typeof stop.lng,
+                      lat: stop.lat,
+                      lng: stop.lng,
+                      fullStop: stop
+                    });
+                  }
+                }
+              });
+            }
 
-          // NEW: Filter routes based on search phase
-          if (showOnlySuggestedRoutes && suggestedRoutes.length > 0) {
-            // Only show routes that are in the suggested list OR the currently selected route
-            const isSuggested = suggestedRoutes.some(suggested => suggested.id === route.id);
-            const isSelected = selectedRoute && selectedRoute.id === route.id;
-            if (!isSuggested && !isSelected) {
+            if (!route.coordinates || !Array.isArray(route.coordinates) || route.coordinates.length < 2) {
               return null;
             }
-          }
 
-          // Validate that all coordinates are valid [lat, lng] pairs
-          const validCoords = route.coordinates.filter(coord => 
-            Array.isArray(coord) && 
-            coord.length === 2 && 
-            typeof coord[0] === 'number' && 
-            typeof coord[1] === 'number' &&
-            coord[0] >= -90 && coord[0] <= 90 &&
-            coord[1] >= -180 && coord[1] <= 180
-          );
+            // NEW: Filter routes based on search phase
+            if (showOnlySuggestedRoutes && suggestedRoutes.length > 0) {
+              // Only show routes that are in the suggested list OR the currently selected route
+              const isSuggested = suggestedRoutes.some(suggested => suggested.id === route.id);
+              const isSelected = selectedRoute && selectedRoute.id === route.id;
+              if (!isSuggested && !isSelected) {
+                return null;
+              }
+            }
 
-          if (validCoords.length < 2) {
-            return null;
-          }
+            // Normalize coordinates: convert {lat, lng} objects to [lat, lng] arrays
+            const normalizedCoords = route.coordinates.map(coord => {
+              // Already in array format [lat, lng]
+              if (Array.isArray(coord) && coord.length === 2) {
+                return coord;
+              }
+              // Object format {lat, lng}
+              if (coord && typeof coord.lat === 'number' && typeof coord.lng === 'number') {
+                return [coord.lat, coord.lng];
+              }
+              // Latitude/longitude property names
+              if (coord && typeof coord.latitude === 'number' && typeof coord.longitude === 'number') {
+                return [coord.latitude, coord.longitude];
+              }
+              // Log problematic coordinate
+              console.warn(`⚠️ Route ${route.number}: Invalid coordinate format:`, coord);
+              return null;
+            }).filter(coord => coord !== null);
 
-          // Check if this route is selected
-          const isSelected = selectedRoute && selectedRoute.id === route.id;
-          const opacity = isSelected ? 1.0 : 0.6;
-          const weight = isSelected ? 6 : 4;
+            // Validate that all coordinates are valid [lat, lng] pairs
+            const validCoords = normalizedCoords.filter(coord => {
+              // Must be an array with 2 elements
+              if (!Array.isArray(coord) || coord.length !== 2) {
+                return false;
+              }
+              // Must have valid lat/lng numbers
+              if (typeof coord[0] !== 'number' || typeof coord[1] !== 'number') {
+                return false;
+              }
+              // Check for NaN values
+              if (isNaN(coord[0]) || isNaN(coord[1])) {
+                return false;
+              }
+              // Check valid lat/lng ranges
+              if (coord[0] < -90 || coord[0] > 90) {
+                return false;
+              }
+              if (coord[1] < -180 || coord[1] > 180) {
+                return false;
+              }
+              return true;
+            });
 
-          return (
-            <Polyline
-              key={route.id}
-              positions={validCoords}
-              className="route-transition"
-              pathOptions={{
-                color: route.color || '#3b82f6',
-                weight: weight,
-                opacity: opacity,
-                lineJoin: 'round',
-                lineCap: 'round'
-              }}
-            >
+            if (validCoords.length < 2) {
+              console.warn(`⚠️ Route ${route.id} (${route.number}): has only ${validCoords.length} valid coordinates after normalization (had ${normalizedCoords.length} normalized), skipping render`);
+              console.warn(`   Original coordinates:`, route.coordinates);
+              console.warn(`   Normalized coordinates:`, normalizedCoords);
+              console.warn(`   Valid coordinates:`, validCoords);
+              return null;
+            }
+
+            // Check if this route is selected
+            const isSelected = selectedRoute && selectedRoute.id === route.id;
+            const opacity = isSelected ? 1.0 : 0.6;
+            const weight = isSelected ? 6 : 4;
+
+            return (
+              <Polyline
+                key={route.id}
+                positions={validCoords}
+                className="route-transition"
+                pathOptions={{
+                  color: route.color || '#3b82f6',
+                  weight: weight,
+                  opacity: opacity,
+                  lineJoin: 'round',
+                  lineCap: 'round'
+                }}
+              >
               <Popup>
                 <div style={{ fontWeight: 'bold', color: route.color }}>
                   Route {route.number}: {route.name}
@@ -451,7 +506,11 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
                 </div>
               </Popup>
             </Polyline>
-          );
+            );
+          } catch (err) {
+            console.error(`❌ Error rendering route ${route.id}:`, err);
+            return null;
+          }
         })}
 
         {showLandmarks && landmarks.map(landmark => {

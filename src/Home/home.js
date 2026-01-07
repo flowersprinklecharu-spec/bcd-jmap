@@ -154,8 +154,11 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   }, [destination, jeepneyRoutes, landmarks]);
 
   useEffect(() => {
+    let watcherId = null;
+
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
+      // Use watchPosition for real-time GPS tracking
+      watcherId = navigator.geolocation.watchPosition(
         (position) => {
           setUserLocation({
             lat: position.coords.latitude,
@@ -163,8 +166,13 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
           });
         },
         (error) => {
-          console.log('Location access denied');
+          console.log('Location access denied or error:', error.message);
           setUserLocation({ lat: 10.6750, lng: 122.9500 });
+        },
+        {
+          enableHighAccuracy: true,  // Use GPS for better accuracy
+          timeout: 10000,            // Wait up to 10 seconds for location
+          maximumAge: 5000           // Use cached position if less than 5 seconds old
         }
       );
     } else {
@@ -177,7 +185,9 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       const routesQuery = query(routesCol);
       const unsubRoutes = onSnapshot(routesQuery, (snapshot) => {
         const routes = snapshot.docs.map(doc => {
-          const data = doc.data();
+          // Use normalizeDocData to ensure all coordinates are in [lat, lng] format
+          const normalized = normalizeDocData(doc);
+          const data = normalized;
           
           console.log(`📦 Route loaded: ${data.number || 'unknown'}`, {
             hasCoordinates: !!data.coordinates,
@@ -186,49 +196,28 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
             coordinatesFirstItem: Array.isArray(data.coordinates) ? data.coordinates[0] : 'N/A'
           });
           
-          // Validate coordinates before adding to state
-          if (data.coordinates) {
-            // If coordinates is an array (polyline), validate each point
-            if (Array.isArray(data.coordinates)) {
-              const validCoords = data.coordinates.filter(coord => {
-                // Accept array format: [lat, lng]
-                if (Array.isArray(coord) && coord.length === 2 && 
-                    typeof coord[0] === 'number' && typeof coord[1] === 'number') {
-                  return true;
-                }
-                // Accept object format: {lat, lng} for backwards compatibility
-                if (coord && typeof coord.lat === 'number' && typeof coord.lng === 'number') {
-                  return true;
-                }
-                return false;
-              }).map(coord => {
-                // Convert {lat, lng} to [lat, lng] for consistency
-                if (Array.isArray(coord)) {
-                  return coord;
-                } else if (coord && typeof coord.lat === 'number') {
-                  return [coord.lat, coord.lng];
-                }
-                return coord;
-              });
-              
-              if (validCoords.length > 0) {
-                data.coordinates = validCoords;
-                console.log(`✅ Route ${data.number}: Validated ${validCoords.length} coordinates`);
-              } else {
-                console.warn(`⚠️ Route ${data.number}: No valid coordinates found in array`);
-                data.coordinates = null;
-              }
-            }
-            // If coordinates is a GeoPoint, convert it
-            else if (typeof data.coordinates.latitude === 'number') {
-              data.coordinates = {
-                latitude: data.coordinates.latitude,
-                longitude: data.coordinates.longitude
-              };
-              console.log(`✅ Route ${data.number}: Converted GeoPoint to object`);
+          // Validate coordinates are in proper [lat, lng] format
+          if (data.coordinates && Array.isArray(data.coordinates)) {
+            const validCoords = data.coordinates.filter(coord => 
+              Array.isArray(coord) && 
+              coord.length === 2 && 
+              typeof coord[0] === 'number' && 
+              typeof coord[1] === 'number' &&
+              !isNaN(coord[0]) && !isNaN(coord[1]) &&
+              coord[0] >= -90 && coord[0] <= 90 &&
+              coord[1] >= -180 && coord[1] <= 180
+            );
+            
+            if (validCoords.length > 0) {
+              data.coordinates = validCoords;
+              console.log(`✅ Route ${data.number}: Validated ${validCoords.length} coordinates`);
+            } else {
+              console.warn(`⚠️ Route ${data.number}: No valid coordinates found`);
+              data.coordinates = null;
             }
           } else {
-            console.warn(`⚠️ Route ${data.number}: No coordinates found in Firestore`);
+            console.warn(`⚠️ Route ${data.number}: No coordinates found or coordinates not an array`);
+            data.coordinates = null;
           }
           
           return { id: doc.id, ...data };
@@ -276,12 +265,22 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       });
 
       return () => {
+        // Cleanup: Stop watching position when component unmounts
+        if (watcherId !== null) {
+          navigator.geolocation.clearWatch(watcherId);
+        }
         unsubRoutes && unsubRoutes();
         unsubLandmarks && unsubLandmarks();
         unsubAnnouncements && unsubAnnouncements();
       };
     } catch (err) {
       console.warn('Firestore not available', err);
+      // Still cleanup geolocation watcher even if Firestore fails
+      return () => {
+        if (watcherId !== null) {
+          navigator.geolocation.clearWatch(watcherId);
+        }
+      };
     }
   }, []);
 

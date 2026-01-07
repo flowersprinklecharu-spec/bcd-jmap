@@ -183,13 +183,15 @@ export function normalizeDocData(doc) {
   // Normalize `coordinates`: can be array of GeoPoints, [lat,lng] arrays, or {lat,lng} objects
   if (Array.isArray(normalized.coordinates)) {
     normalized.coordinates = normalized.coordinates.map(item => {
+      // Convert GeoPoint to [lat, lng] array
       if (item && typeof item.latitude === 'number' && typeof item.longitude === 'number') {
         return [item.latitude, item.longitude];
       }
-      // Keep {lat, lng} format unchanged
+      // Convert {lat, lng} object to [lat, lng] array
       if (item && typeof item.lat === 'number' && typeof item.lng === 'number') {
-        return item;
+        return [item.lat, item.lng];
       }
+      // Already in [lat, lng] array format or other format - keep as is
       return item;
     });
     console.log('🔄 normalizeDocData - coordinates after normalization:', {
@@ -208,6 +210,28 @@ export function normalizeDocData(doc) {
   if (normalized.location && typeof normalized.location.latitude === 'number') {
     normalized.coordinates = gpToArr(normalized.location);
     delete normalized.location;
+  }
+
+  // Normalize `majorStops`: array of stop objects that may have coordinates in {lat, lng} format
+  if (Array.isArray(normalized.majorStops)) {
+    normalized.majorStops = normalized.majorStops.map(stop => {
+      if (!stop) return stop;
+      // If stop has lat/lng properties, keep them as-is (UI can handle both formats)
+      // But ensure they exist and are numbers
+      if (typeof stop === 'object') {
+        return {
+          ...stop,
+          lat: typeof stop.lat === 'number' ? stop.lat : undefined,
+          lng: typeof stop.lng === 'number' ? stop.lng : undefined
+        };
+      }
+      return stop;
+    });
+    console.log('🔄 normalizeDocData - majorStops after normalization:', {
+      originalLength: (data.majorStops || []).length,
+      normalizedLength: (normalized.majorStops || []).length,
+      format: normalized.majorStops?.[0]
+    });
   }
 
   return normalized;

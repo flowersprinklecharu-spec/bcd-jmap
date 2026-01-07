@@ -300,15 +300,13 @@ const RouteMapEditor = forwardRef(({ route, onSave, onCancel, isNewRoute, onEdit
   };
   // Handle save for route coordinates (polyline path)
   const handleSaveCoordinates = () => {
-    if (newStops.length < 2) {
+    if (pathWaypoints.length < 2) {
       alert('Please add at least 2 waypoints to create a route path');
       return;
     }
-    // Convert to array of objects instead of nested arrays for Firestore compatibility
-    const coordinates = newStops.map(stop => ({
-      lat: stop.lat,
-      lng: stop.lng
-    }));
+    // Convert to array format [lat, lng] for consistency with Leaflet and Firestore
+    const coordinates = pathWaypoints.map(waypoint => [waypoint.lat, waypoint.lng]);
+    console.log('📍 handleSaveCoordinates - Saving', coordinates.length, 'coordinates:', coordinates);
     onSaveCoordinates(coordinates);
     // Clear the input box after saving path
     setNewStopName('');
@@ -367,11 +365,16 @@ const RouteMapEditor = forwardRef(({ route, onSave, onCancel, isNewRoute, onEdit
     setIsDrawingPath(false);
     // Reload existing waypoints if they exist, or clear if new route
     if (!isNewRoute && route?.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
-      const existingWaypoints = route.coordinates.map((coord, idx) => ({
-        lat: coord.lat,
-        lng: coord.lng,
-        id: `existing-${idx}-${Date.now()}`
-      }));
+      const existingWaypoints = route.coordinates.map((coord, idx) => {
+        // Handle both array [lat, lng] and object {lat, lng} formats
+        if (Array.isArray(coord) && coord.length === 2) {
+          return { lat: coord[0], lng: coord[1], id: `existing-${idx}-${Date.now()}` };
+        }
+        if (coord && typeof coord.lat === 'number' && typeof coord.lng === 'number') {
+          return { lat: coord.lat, lng: coord.lng, id: `existing-${idx}-${Date.now()}` };
+        }
+        return null;
+      }).filter(w => w !== null);
       setPathWaypoints(existingWaypoints);
       console.log('🔄 Reloaded existing waypoints after cancel');
     } else {
@@ -500,9 +503,22 @@ const RouteMapEditor = forwardRef(({ route, onSave, onCancel, isNewRoute, onEdit
               {((route?.coordinates && route.coordinates.length > 1) || pathWaypoints.length > 1) && (
                 <Polyline 
                   positions={
-                    route?.coordinates && route.coordinates.length > 1
-                      ? route.coordinates.map(c => [c.lat, c.lng])
-                      : pathWaypoints.map(w => [w.lat, w.lng])
+                    // PRIORITY: If drawing mode is active, show the current waypoints being drawn
+                    isDrawingPath && pathWaypoints.length > 1
+                      ? pathWaypoints.map(w => [w.lat, w.lng])
+                      // Otherwise show saved coordinates if they exist
+                      : route?.coordinates && route.coordinates.length > 1
+                        ? route.coordinates.map(c => {
+                            // Handle both array [lat, lng] and object {lat, lng} formats
+                            if (Array.isArray(c) && c.length === 2) {
+                              return c;
+                            }
+                            if (c && typeof c.lat === 'number' && typeof c.lng === 'number') {
+                              return [c.lat, c.lng];
+                            }
+                            return null;
+                          }).filter(c => c !== null)
+                        : []
                   } 
                   color="#FF6B35"
                   weight={4}
