@@ -253,7 +253,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 12px;
+  padding: 15px 20px;
   border: 1px solid #ddd;
   border-radius: 6px;
   background-color: white;
@@ -262,6 +262,8 @@
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
+  width: 145px;
+  justify-content: center;
 }
 
 .feedback-action-btn:hover {
@@ -273,6 +275,7 @@
 .feedback-action-btn.resolve-btn {
   border-color: #28a745;
   color: #28a745;
+  height: 48px;
 }
 
 .feedback-action-btn.resolve-btn:hover {
@@ -282,6 +285,7 @@
 .feedback-action-btn.unresolved-btn {
   border-color: #ffc107;
   color: #ffc107;
+  height: 48px;
 }
 
 .feedback-action-btn.unresolved-btn:hover {
@@ -291,6 +295,7 @@
 .feedback-action-btn.delete-btn {
   border-color: #dc3545;
   color: #dc3545;
+  height: 48px;
 }
 
 .feedback-action-btn.delete-btn:hover {

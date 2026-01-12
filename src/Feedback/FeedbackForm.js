@@ -58,8 +58,10 @@ const FeedbackForm = ({ isOpen, onClose }) => {
         userId: null, // Could add user ID if authenticated
       };
 
+      console.log('📝 Submitting feedback:', feedbackData);
       const feedbackRef = collection(db, 'feedback');
-      await addDoc(feedbackRef, feedbackData);
+      const docRef = await addDoc(feedbackRef, feedbackData);
+      console.log('✅ Feedback submitted successfully! Doc ID:', docRef.id);
 
       // Reset form
       setRating(5);
@@ -75,9 +77,11 @@ const FeedbackForm = ({ isOpen, onClose }) => {
         setSubmitStatus(null);
       }, 2000);
     } catch (error) {
-      console.error('Error submitting feedback:', error);
+      console.error('❌ Error submitting feedback:', error);
+      console.error('Error code:', error.code);
+      console.error('Error message:', error.message);
       setSubmitStatus('error');
-      setSubmitMessage('Failed to submit feedback. Please try again.');
+      setSubmitMessage(`Failed to submit feedback: ${error.message}`);
     } finally {
       setIsSubmitting(false);
     }
