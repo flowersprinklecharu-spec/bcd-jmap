@@ -57,6 +57,67 @@ export async function geocodeAddress(query) {
 }
 
 /**
+ * Reverse geocode coordinates to location name
+ * @param {number} lat - Latitude
+ * @param {number} lng - Longitude
+ * @returns {Promise<string|null>} Location name or null if not found
+ */
+export async function reverseGeocode(lat, lng) {
+  if (lat === undefined || lng === undefined) {
+    return null;
+  }
+
+  try {
+    const params = new URLSearchParams({
+      lat: lat,
+      lon: lng,
+      format: 'json'
+    });
+
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?${params}`,
+      {
+        headers: {
+          'User-Agent': 'BCD-JMap-App'
+        }
+      }
+    );
+
+    if (!response.ok) {
+      console.error('Reverse geocoding API error:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+
+    if (!data) {
+      return null;
+    }
+
+    // Try to get a meaningful location name in order of preference
+    const address = data.address || {};
+    const locationName = 
+      address.neighbourhood || 
+      address.village || 
+      address.town || 
+      address.city || 
+      address.county || 
+      data.name || 
+      null;
+
+    if (locationName) {
+      console.log(`✅ Reverse geocoded (${lat}, ${lng}) to: ${locationName}`);
+      return locationName;
+    }
+
+    return null;
+  } catch (err) {
+    console.error('Reverse geocoding error:', err);
+    return null;
+  }
+}
+
+/**
  * Batch geocode multiple addresses
  * @param {string[]} queries - Array of address strings
  * @returns {Promise<Object>} Map of query -> coordinates

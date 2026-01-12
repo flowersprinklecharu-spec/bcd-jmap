@@ -7,6 +7,7 @@ import { saveLandmark, deleteLandmark, normalizeDocData } from '../firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AdminContext } from '../contexts/AdminContext';
+import { reverseGeocode } from '../utils/geocodingService';
 import LandmarkFormModal from './LandmarkFormModal';
 import './landmarks.css';
 
@@ -95,13 +96,25 @@ const getSuggestedJeepneys = (routes, userLat, userLon, landmarkName, maxProximi
     return [];
   }
   
+  // Helper function to strip parentheses and their contents
+  const stripParentheses = (str) => {
+    if (!str) return '';
+    return str.replace(/\s*\([^)]*\)/g, '').trim();
+  };
+  
   // Filter routes that have the landmark as a major stop
   const routesWithLandmark = routes.filter(route => {
     if (!route.majorStops || !Array.isArray(route.majorStops)) return false;
     
     return route.majorStops.some(stop => {
       const stopName = typeof stop === 'string' ? stop : stop.name;
-      return stopName && stopName.toLowerCase() === landmarkName.toLowerCase();
+      if (!stopName) return false;
+      
+      // Compare with parentheses stripped for flexibility
+      const cleanedStopName = stripParentheses(stopName).toLowerCase();
+      const cleanedLandmarkName = stripParentheses(landmarkName).toLowerCase();
+      
+      return cleanedStopName === cleanedLandmarkName;
     });
   });
   
@@ -213,6 +226,7 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [userLocation, setUserLocation] = useState(null);
   const [suggestedRoutes, setSuggestedRoutes] = useState([]);
   const [nearestStops, setNearestStops] = useState([]);
+  const [userLocationName, setUserLocationName] = useState(null);
   const [showMapEditor, setShowMapEditor] = useState(false);
   const [routes, setRoutes] = useState([]);
 
@@ -284,6 +298,17 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       console.warn('Routes Firestore unavailable', err);
     }
   }, []);
+
+  // Reverse geocode user location to get location name
+  useEffect(() => {
+    if (userLocation) {
+      reverseGeocode(userLocation.lat, userLocation.lon).then(locationName => {
+        setUserLocationName(locationName);
+      });
+    } else {
+      setUserLocationName(null);
+    }
+  }, [userLocation]);
 
   // Suggest jeepneys and nearest stops when landmark selected
   useEffect(() => {
@@ -559,7 +584,7 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
 
               <div className="modal-section">
                 <h3 className="section-title">
-                  <NavigationIcon /> Interactive Map
+                  <NavigationIcon /> Information
                 </h3>
                 <div className="map-view-container">
                 {userLocation && 
@@ -695,70 +720,122 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                     />
                   </MapContainer>
                 ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#6b7280' }}>
-                    <p>Map unavailable</p>
+                  <div style={{ padding: '20px', color: '#555' }}>
+                    <div style={{ marginBottom: '16px' }}>
+                      <h4 style={{ margin: '0 0 8px 0', fontSize: '16px', fontWeight: '600', color: '#333' }}>
+                        📍 {selectedLandmark.name}
+                      </h4>
+                      <span style={{ fontSize: '13px', color: '#777', backgroundColor: '#f0f0f0', padding: '4px 8px', borderRadius: '4px', display: 'inline-block' }}>
+                        {selectedLandmark.category || 'Landmark'}
+                      </span>
+                    </div>
+
+                    {selectedLandmark.description && (
+                      <div style={{ marginBottom: '12px' }}>
+                        <p style={{ margin: '0', fontSize: '14px', color: '#666', lineHeight: '1.5' }}>
+                          {selectedLandmark.description}
+                        </p>
+                      </div>
+                    )}
+
+                    {selectedLandmark.address && (
+                      <div style={{ marginBottom: '12px' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#333' }}>Address</p>
+                        <p style={{ margin: '0', fontSize: '13px', color: '#666' }}>{selectedLandmark.address}</p>
+                      </div>
+                    )}
+
+                    {selectedLandmark.nearestStop && (
+                      <div style={{ marginBottom: '12px' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#333' }}>Nearest Stop</p>
+                        <p style={{ margin: '0', fontSize: '13px', color: '#666' }}>{selectedLandmark.nearestStop}</p>
+                      </div>
+                    )}
+
+                    {userLocation && selectedLandmark.coordinates && (
+                      <div style={{ marginBottom: '12px' }}>
+                        <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#333' }}>Distance from You</p>
+                        <p style={{ margin: '0', fontSize: '13px', color: '#666' }}>
+                          {getClosestDistanceToRoute(userLocation.lat, userLocation.lon, [selectedLandmark.coordinates]) < 1 
+                            ? `${(getClosestDistanceToRoute(userLocation.lat, userLocation.lon, [selectedLandmark.coordinates]) * 1000).toFixed(0)}m`
+                            : `${getClosestDistanceToRoute(userLocation.lat, userLocation.lon, [selectedLandmark.coordinates]).toFixed(2)}km`
+                          }
+                        </p>
+                      </div>
+                    )}
+
+                    <div style={{ 
+                      marginTop: '16px', 
+                      padding: '12px', 
+                      backgroundColor: '#e3f2fd', 
+                      borderRadius: '6px', 
+                      borderLeft: '4px solid #2196f3' 
+                    }}>
+                      <p style={{ margin: '0', fontSize: '13px', color: '#1565c0' }}>
+                        📍 <strong>Enable location permission</strong> to view this landmark on an interactive map
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
             <div className="modal-section">
-              <h3 className="section-title">🚐 Suggested Jeepneys</h3>
+              <h3 className="section-title">🚐 Available Jeepneys to {selectedLandmark.name}</h3>
+              {userLocationName && (
+                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '4px' }}>
+                  📍 <strong>From:</strong> {userLocationName}
+                </div>
+              )}
               {suggestedRoutes.length > 0 ? (
                 <div className="stops-list">
                   {suggestedRoutes.map(route => (
-                    <div key={route.id} className="stop-item route-suggestion">
-                      <div 
-                        className="stop-number"
-                        style={{ backgroundColor: route.color }}
-                      >
-                        {route.number}
-                      </div>
-                      <div className="route-suggestion-info">
-                        <span className="stop-name">{route.name}</span>
-                        <span className="route-fare">Fare: ₱11.00 - ₱15.00</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="no-routes-found">
-                  <p>⚠️ No direct routes found.</p>
-                </div>
-              )}
-            </div>
-
-            <div className="modal-section">
-              <h3 className="section-title">📍 Nearest Transit Stops</h3>
-              {nearestStops.length > 0 ? (
-                <div className="stops-list">
-                  {nearestStops.map((stop, index) => (
-                    <div key={index} className="stop-item">
-                      <div className="stop-distance">
-                        {stop.distance < 1 ? `${(stop.distance * 1000).toFixed(0)}m` : `${stop.distance.toFixed(2)}km`}
-                      </div>
-                      <div className="stop-info">
-                        <span className="stop-name">{stop.name}</span>
-                        {stop.routeNumbers && stop.routeNumbers.length > 0 && (
-                          <div className="stop-routes">
-                            {stop.routeNumbers.map((routeNum, idx) => (
-                              <span
-                                key={idx}
-                                className="route-badge"
-                                style={{ backgroundColor: stop.routeColors[idx] || '#999' }}
-                              >
-                                {routeNum}
-                              </span>
-                            ))}
+                    <div key={route.id} className="route-detail-item" style={{ 
+                      borderLeft: `4px solid ${route.color}`,
+                      padding: '12px',
+                      marginBottom: '8px',
+                      backgroundColor: '#f9fafb',
+                      borderRadius: '6px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
+                        <div 
+                          className="stop-number"
+                          style={{ 
+                            backgroundColor: route.color,
+                            minWidth: '36px',
+                            height: '36px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: '6px',
+                            color: 'white',
+                            fontWeight: 'bold',
+                            marginRight: '12px'
+                          }}
+                        >
+                          {route.number}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: '600', color: '#1f2937', fontSize: '14px' }}>
+                            {route.name}
                           </div>
-                        )}
+                          <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                            Fare: ₱11.00 - ₱15.00
+                          </div>
+                        </div>
                       </div>
+
+                      {route.userDistance !== undefined && (
+                        <div style={{ fontSize: '12px', color: '#059669', marginTop: '6px' }}>
+                          ✓ {route.userDistance < 1 ? `${(route.userDistance * 1000).toFixed(0)}m from you` : `${route.userDistance.toFixed(2)}km from you`}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="no-routes-found">
-                  <p>No nearby stops found.</p>
+                  <p>⚠️ No direct routes found to this landmark.</p>
                 </div>
               )}
             </div>

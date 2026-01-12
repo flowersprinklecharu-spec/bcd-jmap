@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db, normalizeDocData } from '../firebase';
-import { geocodeAddress } from '../utils/geocodingService';
+import { geocodeAddress, reverseGeocode } from '../utils/geocodingService';
 import { findNearbyRoutes, formatDistance, searchRoutesByNameOrProximity, getRadiusFromZoom, enhanceRoutesWithGPS } from '../utils/routeMatchingService';
 import { calculateBounds, addPaddingToBounds } from '../utils/boundsCalculator';
 import FeedbackForm from '../Feedback/FeedbackForm';
+import LocationSelector from '../components/LocationSelector';
+import DestinationSelector from '../components/DestinationSelector';
+import '../components/location-selector.css';
+import '../components/destination-selector.css';
 // Navbar moved to App.js (top-level)
 import LeafletMap from '../Map/LeafletMap';
 
@@ -40,6 +44,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [showRouteDetails, setShowRouteDetails] = useState(false);
   const [expandedRouteId, setExpandedRouteId] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
+  const [userLocationName, setUserLocationName] = useState(null);
   const [jeepneyRoutes, setJeepneyRoutes] = useState([]);
   const [landmarks, setLandmarks] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
@@ -51,6 +56,8 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(12); // Current map zoom level (for zoom-based radius)
   const [gpsPermission, setGpsPermission] = useState(null); // 'granted' | 'denied' | null
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [selectedDestinationFromSelector, setSelectedDestinationFromSelector] = useState(null);
   
   // NEW: Search phase control states (additive, non-breaking)
   const [searchPhase, setSearchPhase] = useState('idle'); // 'idle' | 'searching' | 'viewing-suggestions' | 'viewing-route'
@@ -285,6 +292,17 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       };
     }
   }, []);
+
+  // Reverse geocode user location to get location name
+  useEffect(() => {
+    if (userLocation) {
+      reverseGeocode(userLocation.lat, userLocation.lng).then(locationName => {
+        setUserLocationName(locationName);
+      });
+    } else {
+      setUserLocationName(null);
+    }
+  }, [userLocation]);
 
   // Scroll to route details when they appear
   useEffect(() => {
@@ -630,127 +648,43 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
             <div className="card">
               <h2 className="card-title">Welcome to JeepneyMap!</h2>
               
-              <div className="form-grid">
-                <div>
-                  <label className="form-label">Find Your Stop</label>
-                  <div className="destination-input-wrapper">
-                    <div className="input-with-icon">
-                      <SearchIcon />
-                      <input
-                        type="text"
-                        value={destination}
-                        onChange={(e) => {
-                          setDestination(e.target.value);
-                          setShowDropdown(true);
-                        }}
-                        onFocus={() => setShowDropdown(true)}
-                        onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
-                        placeholder="Search for a stop or landmark..."
-                        className="input"
-                      />
-                      {destination && (
-                        <button
-                          type="button"
-                          className="clear-input-btn"
-                          onClick={() => {
-                            setDestination('');
-                            setShowDropdown(false);
-                            setExpandedRouteId(null);
-                            setSuggestedRoutes([]);
-                            setSearchType('');
-                            // NEW: Reset search phases
-                            setSearchPhase('idle');
-                            setShowOnlyDestination(false);
-                            setShowOnlySuggestedRoutes(false);
-                          }}
-                          title="Clear search"
-                        >
-                          <CloseIcon />
-                        </button>
-                      )}
-                    </div>
-                    
-                    {/* Dropdown suggestions */}
-                    {showDropdown && suggestions.length > 0 && (
-                      <div className="suggestions-dropdown">
-                        {suggestions.slice(0, 10).map((suggestion, index) => (
-                          <div
-                            key={index}
-                            className="suggestion-item"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setDestination(suggestion);
-                              setShowDropdown(false);
-                              
-                              // Get coordinates and set for map zoom
-                              let coords = null;
-                              let foundInSystem = false;
-                              
-                              // First, try to find in landmarks
-                              const landmark = landmarks.find(lm => 
-                                lm.name.toLowerCase() === suggestion.toLowerCase()
-                              );
-                              if (landmark && landmark.coordinates) {
-                                coords = landmark.coordinates;
-                                foundInSystem = true;
-                              }
-                              
-                              // If not found in landmarks, search in routes with priority for stop's own coords
-                              if (!coords) {
-                                for (let route of jeepneyRoutes) {
-                                  if (route.majorStops && Array.isArray(route.majorStops)) {
-                                    // Use .find() to get the actual stop object
-                                    const foundStop = route.majorStops.find(stop => {
-                                      const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-                                      return stopName.toLowerCase() === suggestion.toLowerCase();
-                                    });
-                                    
-                                    if (foundStop) {
-                                      const stopName = typeof foundStop === 'string' ? foundStop : (foundStop?.name || '');
-                                      foundInSystem = true;
-                                      
-                                      // Priority 1: Check if stop itself has coordinates (lat/lng)
-                                      if (typeof foundStop === 'object' && foundStop.lat !== undefined && foundStop.lng !== undefined) {
-                                        coords = [foundStop.lat, foundStop.lng];
-                                      }
-                                      // Priority 2: Fall back to route's first coordinate
-                                      else if (route.coordinates?.length > 0) {
-                                        coords = route.coordinates[0];
-                                      }
-                                      break;
-                                    }
-                                  }
-                                }
-                              }
-                              
-                              // Set coordinates and search type
-                              if (coords) {
-                                setSelectedDestinationCoords(coords);
-                              }
-                              if (foundInSystem) {
-                                setSearchType('system');
-                              }
-                              
-                              // Auto-trigger find routes
-                              setTimeout(() => {
-                                triggerFindRoute(suggestion);
-                              }, 0);
-                            }}
-                          >
-                            <MapPinSmallIcon />
-                            <span>{suggestion}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
+              {/* New Location and Destination Selectors */}
+              <div className="form-grid" style={{ marginBottom: '20px' }}>
+                <LocationSelector 
+                  landmarks={landmarks}
+                  onLocationSelect={(location) => {
+                    setSelectedLocation(location);
+                    setUserLocation({
+                      lat: location.coordinates[0],
+                      lng: location.coordinates[1]
+                    });
+                  }}
+                  selectedLocation={selectedLocation}
+                />
+                <DestinationSelector 
+                  routes={jeepneyRoutes}
+                  landmarks={landmarks}
+                  onDestinationSelect={(destination) => {
+                    setSelectedDestinationFromSelector(destination);
+                    setDestination(destination.name);
+                    // No auto-trigger - user will click "Find Stops" button
+                  }}
+                  selectedDestination={selectedDestinationFromSelector}
+                />
               </div>
 
               <button 
-                onClick={handleFindRoute} 
+                onClick={() => {
+                  if (!selectedLocation || !selectedDestinationFromSelector) {
+                    alert('Please select both your location and destination');
+                    return;
+                  }
+                  // Trigger route finding based on location + destination
+                  setDestination(selectedDestinationFromSelector.name);
+                  triggerFindRoute(selectedDestinationFromSelector.name);
+                }} 
                 className="btn-primary"
-                disabled={!destination}
+                disabled={!selectedLocation || !selectedDestinationFromSelector}
               >
                 Find Stops
               </button>
@@ -758,6 +692,11 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
 
             <div className="card">
               <h2 className="card-title"><MapPinIcon /> Map View</h2>
+              {userLocationName && (
+                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '4px' }}>
+                  📍 <strong>Your location:</strong> {userLocationName}
+                </div>
+              )}
               <div className="map-wrapper">
                 <LeafletMap
                   routes={jeepneyRoutes}
