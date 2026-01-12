@@ -6,6 +6,7 @@ import LandmarksPage from './Landmarks/Landmarks';
 import AnnouncementsPage from './Announcements/Announcements';
 import AboutPage from './About/About';
 import AdminLoginPage from './Login/AdminLoginPage';
+import FeedbackAdmin from './Feedback/FeedbackAdmin';
 import ConnectionStatus from './components/ConnectionStatus';
 import { auth, isAdminByEmail } from './firebase';
 import { AdminProvider } from './contexts/AdminContext';
@@ -17,6 +18,7 @@ import './RouteEditor/route-editor.css';
 import './Landmarks/landmarks.css';
 import './Announcements/announcements.css';
 import './About/about.css';
+import './Feedback/feedback-admin.css';
 import Navbar from './Navbar/Navbar';
 
 function App() {
@@ -148,6 +150,8 @@ function App() {
         return <AnnouncementsPage {...sharedProps} />;
       case 'about':
         return <AboutPage {...sharedProps} />;
+      case 'feedback':
+        return <FeedbackAdmin {...sharedProps} />;
       case 'admin':
         return <AdminLoginPage onLoginSuccess={handleLoginSuccess} onNavigate={handleNavigate} />;
       default:

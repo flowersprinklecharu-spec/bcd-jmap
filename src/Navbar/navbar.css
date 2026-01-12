@@ -134,6 +134,19 @@
   white-space: nowrap;
 }
 
+/* Admin Menu */
+.navbar-admin-menu {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+@media (max-width: 767px) {
+  .navbar-admin-menu {
+    display: none;
+  }
+}
+
 /* Mobile Menu Button */
 .navbar-mobile-menu-btn {
   display: flex;

@@ -7,7 +7,7 @@ import { saveLandmark, deleteLandmark, normalizeDocData } from '../firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AdminContext } from '../contexts/AdminContext';
-import LandmarkMapEditor from './LandmarkMapEditor';
+import LandmarkFormModal from './LandmarkFormModal';
 import './landmarks.css';
 
 // Fix Leaflet default marker icon issue
@@ -125,6 +125,72 @@ const getSuggestedJeepneys = (routes, userLat, userLon, landmarkName, maxProximi
   return nearbyJeepneys;
 }
 
+// Get nearest stops to a landmark from all routes
+const getNearestStops = (routes, landmarkLat, landmarkLon, topN = 5) => {
+  if (!routes || !Array.isArray(routes) || !landmarkLat || !landmarkLon) {
+    return [];
+  }
+
+  // Collect all unique stops from all routes with their metadata
+  const stopsMap = new Map();
+  
+  routes.forEach(route => {
+    if (!route.majorStops || !Array.isArray(route.majorStops)) return;
+    
+    route.majorStops.forEach(stop => {
+      const stopName = typeof stop === 'string' ? stop : stop.name;
+      if (!stopName) return;
+      
+      // Use stopName as key to deduplicate
+      if (!stopsMap.has(stopName)) {
+        stopsMap.set(stopName, {
+          name: stopName,
+          routeNumbers: [],
+          routeColors: []
+        });
+      }
+      
+      const stopData = stopsMap.get(stopName);
+      if (!stopData.routeNumbers.includes(route.number)) {
+        stopData.routeNumbers.push(route.number);
+        stopData.routeColors.push(route.color);
+      }
+    });
+  });
+
+  // Convert to array and calculate distance from landmark
+  const stopsWithDistance = Array.from(stopsMap.values()).map(stop => {
+    // Use a rough distance estimate (assuming stops are roughly evenly distributed)
+    // In a real app, you'd have actual coordinates for each stop
+    // For now, we'll use a simplified approach: first route that has this stop
+    let estimatedDistance = Infinity;
+    
+    routes.forEach(route => {
+      if (!route.majorStops || !Array.isArray(route.majorStops)) return;
+      const hasStop = route.majorStops.some(s => {
+        const name = typeof s === 'string' ? s : s.name;
+        return name === stop.name;
+      });
+      
+      if (hasStop && route.coordinates && Array.isArray(route.coordinates)) {
+        const distance = getClosestDistanceToRoute(landmarkLat, landmarkLon, route.coordinates);
+        estimatedDistance = Math.min(estimatedDistance, distance);
+      }
+    });
+    
+    return {
+      ...stop,
+      distance: estimatedDistance
+    };
+  });
+
+  // Sort by distance and return top N
+  return stopsWithDistance
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, topN)
+    .map(({ distance, ...stop }) => ({ ...stop, distance }));
+};
+
 // Category to emoji mapping
 const categoryEmojis = {
   'Schools': '🎓',
@@ -146,6 +212,7 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [landmarks, setLandmarks] = useState([]);
   const [userLocation, setUserLocation] = useState(null);
   const [suggestedRoutes, setSuggestedRoutes] = useState([]);
+  const [nearestStops, setNearestStops] = useState([]);
   const [showMapEditor, setShowMapEditor] = useState(false);
   const [routes, setRoutes] = useState([]);
 
@@ -218,7 +285,7 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     }
   }, []);
 
-  // Suggest jeepneys when landmark selected
+  // Suggest jeepneys and nearest stops when landmark selected
   useEffect(() => {
     if (selectedLandmark && userLocation && routes.length > 0) {
       const suggestedJeepneys = getSuggestedJeepneys(
@@ -226,6 +293,12 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
         userLocation.lat,
         userLocation.lon,
         selectedLandmark.name
+      );
+      const nearbyStops = getNearestStops(
+        routes,
+        selectedLandmark.coordinates[0],
+        selectedLandmark.coordinates[1],
+        5
       );
       console.log('🔍 Suggested jeepneys for landmark:', selectedLandmark.name, {
         landmarkName: selectedLandmark.name,
@@ -235,8 +308,10 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
         allRoutes: routes.map(r => ({ id: r.id, number: r.number, name: r.name, majorStops: r.majorStops }))
       });
       setSuggestedRoutes(suggestedJeepneys);
+      setNearestStops(nearbyStops);
     } else {
       setSuggestedRoutes([]);
+      setNearestStops([]);
     }
   }, [selectedLandmark, userLocation, routes]);
 
@@ -305,19 +380,15 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   });
 
   const handleAddLandmark = () => {
-    setEditingLandmark(null); // Clear any existing landmark data
+    setEditingLandmark(null);
     setEditMode('add');
-    setShowMapEditor(true); // Open map editor for adding
+    setShowMapEditor(true);
   };
 
   const handleEditLandmark = (landmark) => {
-    const copy = { ...landmark };
-    if (!copy.coordinates || !Array.isArray(copy.coordinates) || copy.coordinates.length !== 2) {
-      copy.coordinates = [10.6750, 122.9500];
-    }
-    setEditingLandmark(copy);
+    setEditingLandmark(landmark);
     setEditMode('edit');
-    setShowMapEditor(true); // Open map editor for editing
+    setShowMapEditor(true);
   };
 
   const handleInputChange = (field, value) => {
@@ -529,16 +600,85 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                     </Marker>
 
                     {suggestedRoutes.map(route => {
-                      if (route.path && Array.isArray(route.path) && route.path.length > 1) {
+                      if (route.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 1) {
                         return (
                           <Polyline
                             key={route.id}
-                            positions={route.path}
+                            positions={route.coordinates}
                             pathOptions={{ color: route.color, weight: 4, opacity: 0.7 }}
                           />
                         );
                       }
                       return null;
+                    })}
+
+                    {nearestStops.map((stop, index) => {
+                      // Calculate approximate center of suggested routes to estimate stop position
+                      // For now, we'll place stops along the route paths of suggested routes
+                      // A better approach would be to have actual stop coordinates in the database
+                      let stopPosition = null;
+                      
+                      if (suggestedRoutes.length > 0) {
+                        // Use the first suggested route's coordinates to estimate
+                        const firstRoute = suggestedRoutes[0];
+                        if (firstRoute.coordinates && firstRoute.coordinates.length > 0) {
+                          // Find approximate position along the route
+                          const routeLen = firstRoute.coordinates.length;
+                          const posIndex = Math.floor((routeLen / (index + 2)));
+                          stopPosition = firstRoute.coordinates[Math.min(posIndex, routeLen - 1)];
+                        }
+                      }
+                      
+                      // If no position found from routes, skip this stop on map
+                      // In a production app, stops should have their own coordinates
+                      if (!stopPosition) return null;
+
+                      const stopMarkerIcon = L.divIcon({
+                        html: `<svg width="32" height="40" viewBox="0 0 32 40" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));"><path d="M 16 0 C 10 0 5 5 5 12 C 5 22 16 40 16 40 C 16 40 27 22 27 12 C 27 5 22 0 16 0 Z" fill="#10b981" stroke="white" stroke-width="1.5"/><circle cx="16" cy="12" r="3.5" fill="white"/></svg>`,
+                        className: 'stop-marker',
+                        iconSize: [32, 40],
+                        iconAnchor: [16, 40],
+                      });
+
+                      return (
+                        <Marker
+                          key={`stop-${index}`}
+                          position={stopPosition}
+                          icon={stopMarkerIcon}
+                          title={stop.name}
+                        >
+                          <Popup>
+                            <div style={{ minWidth: '200px' }}>
+                              <strong style={{ fontSize: '14px', color: '#1f2937' }}>{stop.name}</strong>
+                              <p style={{ margin: '8px 0 4px 0', fontSize: '12px', color: '#6b7280' }}>
+                                <strong>Distance:</strong> {stop.distance < 1 ? `${(stop.distance * 1000).toFixed(0)}m` : `${stop.distance.toFixed(2)}km`}
+                              </p>
+                              {stop.routeNumbers && stop.routeNumbers.length > 0 && (
+                                <div style={{ marginTop: '8px' }}>
+                                  <strong style={{ fontSize: '12px', color: '#1f2937' }}>Routes:</strong>
+                                  <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' }}>
+                                    {stop.routeNumbers.map((routeNum, idx) => (
+                                      <span
+                                        key={idx}
+                                        style={{
+                                          backgroundColor: stop.routeColors[idx] || '#999',
+                                          color: 'white',
+                                          padding: '4px 8px',
+                                          borderRadius: '4px',
+                                          fontSize: '11px',
+                                          fontWeight: '600'
+                                        }}
+                                      >
+                                        {routeNum}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </Popup>
+                        </Marker>
+                      );
                     })}
 
                     <Polyline
@@ -563,7 +703,7 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
             </div>
 
             <div className="modal-section">
-              <h3 className="section-title">Suggested Jeepneys</h3>
+              <h3 className="section-title">🚐 Suggested Jeepneys</h3>
               {suggestedRoutes.length > 0 ? (
                 <div className="stops-list">
                   {suggestedRoutes.map(route => (
@@ -584,6 +724,41 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
               ) : (
                 <div className="no-routes-found">
                   <p>⚠️ No direct routes found.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="modal-section">
+              <h3 className="section-title">📍 Nearest Transit Stops</h3>
+              {nearestStops.length > 0 ? (
+                <div className="stops-list">
+                  {nearestStops.map((stop, index) => (
+                    <div key={index} className="stop-item">
+                      <div className="stop-distance">
+                        {stop.distance < 1 ? `${(stop.distance * 1000).toFixed(0)}m` : `${stop.distance.toFixed(2)}km`}
+                      </div>
+                      <div className="stop-info">
+                        <span className="stop-name">{stop.name}</span>
+                        {stop.routeNumbers && stop.routeNumbers.length > 0 && (
+                          <div className="stop-routes">
+                            {stop.routeNumbers.map((routeNum, idx) => (
+                              <span
+                                key={idx}
+                                className="route-badge"
+                                style={{ backgroundColor: stop.routeColors[idx] || '#999' }}
+                              >
+                                {routeNum}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="no-routes-found">
+                  <p>No nearby stops found.</p>
                 </div>
               )}
             </div>
@@ -709,22 +884,17 @@ const Landmarks = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
         </div>
       )}
 
-      {showMapEditor && isAdmin && (
-        <div className="map-editor-modal-overlay" onClick={() => setShowMapEditor(false)}>
-          <div className="map-editor-modal-content" onClick={(e) => e.stopPropagation()}>
-            <LandmarkMapEditor
-              onSave={handleMapEditorSave}
-              onCancel={() => {
-                setShowMapEditor(false);
-                setEditingLandmark(null);
-              }}
-              existingLandmarks={landmarks}
-              editingLandmark={editingLandmark}
-              isEditMode={editMode === 'edit'}
-            />
-          </div>
-        </div>
-      )}
+      <LandmarkFormModal
+        isOpen={showMapEditor}
+        onClose={() => {
+          setShowMapEditor(false);
+          setEditingLandmark(null);
+        }}
+        onSave={handleMapEditorSave}
+        editingLandmark={editingLandmark}
+        isEditMode={editMode === 'edit'}
+      />
+
     </div>
   );
 };

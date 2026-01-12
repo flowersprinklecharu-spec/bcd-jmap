@@ -107,14 +107,24 @@ const Navbar = ({ isAdmin, onAdminToggle, onNavigate, currentPage }) => {
 
           {/* Admin Icon Button - Only visible when logged in */}
           {isAdmin && (
-            <button 
-              className={`navbar-admin-btn ${isAdmin ? 'active' : ''}`}
-              onClick={handleAdminClick}
-              title="Logout (Admin)"
-            >
-              <AdminIcon />
-              {isAdmin && <span className="admin-label">Logout</span>}
-            </button>
+            <div className="navbar-admin-menu">
+              <a 
+                href="#" 
+                className={`nav-link ${currentPage === 'feedback' ? 'active' : ''}`}
+                onClick={(e) => { e.preventDefault(); handleNavClick('feedback'); }}
+                title="User Feedback"
+              >
+                Feedback
+              </a>
+              <button 
+                className="navbar-admin-btn active"
+                onClick={handleAdminClick}
+                title="Logout (Admin)"
+              >
+                <AdminIcon />
+                <span className="admin-label">Logout</span>
+              </button>
+            </div>
           )}
 
           {/* Mobile Menu Button */}
@@ -164,6 +174,15 @@ const Navbar = ({ isAdmin, onAdminToggle, onNavigate, currentPage }) => {
             >
               About
             </a>
+            {isAdmin && (
+              <a 
+                href="#" 
+                className={`mobile-nav-link ${currentPage === 'feedback' ? 'active' : ''}`}
+                onClick={(e) => { e.preventDefault(); handleNavClick('feedback'); }}
+              >
+                Feedback (Admin)
+              </a>
+            )}
           </div>
         )}
       </div>

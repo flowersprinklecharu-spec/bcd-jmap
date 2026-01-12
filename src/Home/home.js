@@ -4,6 +4,7 @@ import { db, normalizeDocData } from '../firebase';
 import { geocodeAddress } from '../utils/geocodingService';
 import { findNearbyRoutes, formatDistance, searchRoutesByNameOrProximity, getRadiusFromZoom, enhanceRoutesWithGPS } from '../utils/routeMatchingService';
 import { calculateBounds, addPaddingToBounds } from '../utils/boundsCalculator';
+import FeedbackForm from '../Feedback/FeedbackForm';
 // Navbar moved to App.js (top-level)
 import LeafletMap from '../Map/LeafletMap';
 
@@ -47,6 +48,7 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [selectedDestinationCoords, setSelectedDestinationCoords] = useState(null);
   const [zoomBounds, setZoomBounds] = useState(null); // For smart zoom on route selection
   const [searchType, setSearchType] = useState(''); // 'system' for found in DB, 'geocoded' for API search
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(12); // Current map zoom level (for zoom-based radius)
   const [gpsPermission, setGpsPermission] = useState(null); // 'granted' | 'denied' | null
   
@@ -967,9 +969,27 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                 View All Landmarks
               </button>
             </div>
+
+            <div className="card">
+              <h2 className="card-title">Help Us Improve</h2>
+              <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
+                Your feedback helps us make JeepneyMap better for everyone.
+              </p>
+              <button 
+                className="btn-primary"
+                onClick={() => setShowFeedbackForm(true)}
+              >
+                Share Your Feedback
+              </button>
+            </div>
           </div>
         </div>
       </div>
+
+      <FeedbackForm 
+        isOpen={showFeedbackForm} 
+        onClose={() => setShowFeedbackForm(false)} 
+      />
     </div>
   );
 };
