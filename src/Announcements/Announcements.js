@@ -42,7 +42,7 @@ const Announcements = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => 
   const [showModal, setShowModal] = useState(false);
   const [editMode, setEditMode] = useState('add');
   const [editingAnnouncement, setEditingAnnouncement] = useState(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false); // Track unsaved changes
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   useEffect(() => {
     try {
@@ -69,33 +69,6 @@ const Announcements = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => 
     }
   }, []);
 
-  // Auto-save draft to localStorage whenever editingAnnouncement changes
-  useEffect(() => {
-    if (editingAnnouncement && showModal) {
-      setHasUnsavedChanges(true);
-      // Save to localStorage with a debounce (save after 1 second of no changes)
-      const timer = setTimeout(() => {
-        localStorage.setItem('announcementDraft', JSON.stringify(editingAnnouncement));
-        console.log('💾 Announcement draft auto-saved');
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [editingAnnouncement, showModal]);
-
-  // Warn before closing/refreshing if there are unsaved changes
-  useEffect(() => {
-    const handleBeforeUnload = (e) => {
-      if (hasUnsavedChanges && editingAnnouncement && showModal) {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedChanges, editingAnnouncement, showModal]);
-
   const handleAddAnnouncement = () => {
     setEditMode('add');
     setEditingAnnouncement({
@@ -108,12 +81,52 @@ const Announcements = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => 
       isImportant: false
     });
     setShowModal(true);
+    setHasUnsavedChanges(false);
   };
 
   const handleEditAnnouncement = (announcement) => {
     setEditMode('edit');
     setEditingAnnouncement(announcement);
     setShowModal(true);
+    setHasUnsavedChanges(false);
+  };
+
+  const handleInputChange = (field, value) => {
+    setEditingAnnouncement({ ...editingAnnouncement, [field]: value });
+    setHasUnsavedChanges(true);
+  };
+
+  const handleSaveAnnouncement = async () => {
+    try {
+      if (editMode === 'add') {
+        await saveAnnouncement(editingAnnouncement);
+        setAnnouncements([editingAnnouncement, ...announcements]);
+        alert('✅ Announcement posted successfully!');
+      } else {
+        await saveAnnouncement(editingAnnouncement);
+        setAnnouncements(announcements.map(a => a.id === editingAnnouncement.id ? editingAnnouncement : a));
+        alert('✅ Announcement updated successfully!');
+      }
+      setHasUnsavedChanges(false);
+      setShowModal(false);
+      setEditingAnnouncement(null);
+    } catch (err) {
+      console.error(err);
+      alert('❌ Failed to save announcement: ' + err.message);
+    }
+  };
+
+  const closeModal = () => {
+    if (hasUnsavedChanges) {
+      if (window.confirm('You have unsaved changes. Are you sure you want to close without saving?')) {
+        setShowModal(false);
+        setEditingAnnouncement(null);
+        setHasUnsavedChanges(false);
+      }
+    } else {
+      setShowModal(false);
+      setEditingAnnouncement(null);
+    }
   };
 
   const handleDeleteAnnouncement = async (id) => {
@@ -129,56 +142,11 @@ const Announcements = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => 
     }
   };
 
-  const handleSaveAnnouncement = async () => {
-    try {
-      if (editMode === 'add') {
-        await saveAnnouncement(editingAnnouncement);
-        setAnnouncements([editingAnnouncement, ...announcements]);
-        alert('✅ Announcement posted successfully!');
-      } else {
-        await saveAnnouncement(editingAnnouncement);
-        setAnnouncements(announcements.map(a => a.id === editingAnnouncement.id ? editingAnnouncement : a));
-        alert('✅ Announcement updated successfully!');
-      }
-      // Clear draft and unsaved changes on successful save
-      localStorage.removeItem('announcementDraft');
-      setHasUnsavedChanges(false);
-      setShowModal(false);
-      setEditingAnnouncement(null);
-    } catch (err) {
-      console.error(err);
-      alert('❌ Failed to save announcement: ' + err.message);
-    }
-  };
 
-  const handleInputChange = (field, value) => {
-    setEditingAnnouncement({ ...editingAnnouncement, [field]: value });
-  };
 
-  // Clear unsaved changes flag when modal closes and notify parent about editing state
-  useEffect(() => {
-    if (!showModal) {
-      setHasUnsavedChanges(false);
-    }
-    // Notify parent about editing state (for Admin Mode indicator)
-    if (onAdminEditingChange) {
-      console.log('📢 Announcements notifying admin editing state:', showModal);
-      onAdminEditingChange(showModal);
-    }
-  }, [showModal, onAdminEditingChange]);
 
-  // Safe close that warns about unsaved changes
-  const safeCloseModal = () => {
-    if (hasUnsavedChanges && editingAnnouncement && showModal) {
-      if (window.confirm('You have unsaved changes. Are you sure you want to close without saving?')) {
-        setShowModal(false);
-        setEditingAnnouncement(null);
-      }
-    } else {
-      setShowModal(false);
-      setEditingAnnouncement(null);
-    }
-  };
+
+
 
   return (
     <div className="announcements-page">
@@ -236,73 +204,78 @@ const Announcements = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => 
           ))}
         </div>
       </div>
+
       {showModal && editingAnnouncement && (
-        <div className="modal-overlay" onClick={safeCloseModal}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="modal-close" onClick={safeCloseModal}>
-              <CloseIcon />
-            </button>
+        <div className="announcement-modal-overlay" onClick={closeModal}>
+          <div className="announcement-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="announcement-modal-header">
+              <h2 className="announcement-modal-title">
+                {editMode === 'add' ? 'Add New Announcement' : 'Edit Announcement'}
+              </h2>
+              <button className="announcement-modal-close" onClick={closeModal}>
+                <CloseIcon />
+              </button>
+            </div>
 
-            <h2 className="modal-title">
-              {editMode === 'add' ? 'Add New Announcement' : 'Edit Announcement'}
-            </h2>
-
-            <div className="edit-form">
-              <div className="form-group">
-                <label className="form-label">Title</label>
+            <div className="announcement-form">
+              <div className="announcement-form-group">
+                <label className="announcement-form-label">Title</label>
                 <input
                   type="text"
                   value={editingAnnouncement.title}
                   onChange={(e) => handleInputChange('title', e.target.value)}
-                  className="form-input"
+                  className="announcement-form-input"
+                  placeholder="Enter announcement title"
                 />
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Description</label>
+              <div className="announcement-form-group">
+                <label className="announcement-form-label">Description</label>
                 <textarea
                   value={editingAnnouncement.description}
                   onChange={(e) => handleInputChange('description', e.target.value)}
-                  className="form-textarea"
-                  rows="4"
+                  className="announcement-form-textarea"
+                  placeholder="Enter announcement details"
+                  rows="3"
                 />
               </div>
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Date</label>
+              <div className="announcement-form-row">
+                <div className="announcement-form-group">
+                  <label className="announcement-form-label">Date</label>
                   <input
                     type="text"
                     value={editingAnnouncement.date}
                     onChange={(e) => handleInputChange('date', e.target.value)}
-                    className="form-input"
+                    className="announcement-form-input"
+                    placeholder="e.g., January 13, 2026"
                   />
                 </div>
               </div>
 
-              <div className="form-group">
-                <label className="checkbox-label">
+              <div className="announcement-form-group announcement-checkbox-group">
+                <label className="announcement-checkbox-label">
                   <input
                     type="checkbox"
                     checked={editingAnnouncement.isImportant}
                     onChange={(e) => handleInputChange('isImportant', e.target.checked)}
-                    className="form-checkbox"
+                    className="announcement-form-checkbox"
                   />
                   <span>Mark as Important Notice</span>
                 </label>
               </div>
 
-              <div className="form-actions">
+              <div className="announcement-form-actions">
                 <button
                   type="button"
-                  className="cancel-btn"
-                  onClick={safeCloseModal}
+                  className="announcement-cancel-btn"
+                  onClick={closeModal}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  className="save-btn"
+                  className="announcement-save-btn"
                   onClick={handleSaveAnnouncement}
                 >
                   {editMode === 'add' ? 'Add Announcement' : 'Save Changes'}
