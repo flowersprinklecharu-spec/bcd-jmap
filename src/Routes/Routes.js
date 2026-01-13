@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useContext, useRef } 
 // Navbar moved to App.js (top-level)
 import RouteMapEditor from './RouteMapEditor';
 import LeafletMap from '../Map/LeafletMap';
-import { saveRoute, deleteRoute, normalizeDocData } from '../firebase';
+import { saveRoute, deleteRoute, saveAnnouncement, deleteAnnouncement, findAnnouncementByRouteId, normalizeDocData } from '../firebase';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AdminContext } from '../contexts/AdminContext';
@@ -212,6 +212,19 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     if (window.confirm('Are you sure you want to delete this route?')) {
       try {
         await deleteRoute(routeId);
+        
+        // Delete corresponding announcement
+        try {
+          const announcement = await findAnnouncementByRouteId(routeId);
+          if (announcement) {
+            await deleteAnnouncement(announcement.id);
+            console.log('✅ Announcement deleted for route ID:', routeId);
+          }
+        } catch (announcementErr) {
+          console.warn('⚠️ Failed to delete announcement for route:', announcementErr);
+          // Don't throw - the route was already deleted successfully
+        }
+        
         alert('✅ Route deleted successfully!');
       } catch (err) {
         console.error(err);
@@ -287,6 +300,26 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       
       if (modalMode === 'add') {
         await saveRoute(dataToSave);
+        
+        // Create announcement for new route
+        try {
+          const newAnnouncement = {
+            id: Date.now(),
+            title: editingRoute?.name || 'New Route',
+            description: '',
+            date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
+            category: 'New Route',
+            type: 'route-update',
+            isImportant: false,
+            linkedRouteId: editingRoute?.id
+          };
+          await saveAnnouncement(newAnnouncement);
+          console.log('✅ Announcement created for new route:', editingRoute?.name);
+        } catch (announcementErr) {
+          console.warn('⚠️ Failed to create announcement for route:', announcementErr);
+          // Don't throw - the route was already saved successfully
+        }
+        
         alert('✅ Route added successfully!');
       } else if (modalMode === 'edit') {
         await saveRoute(dataToSave);

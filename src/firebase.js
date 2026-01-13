@@ -1,6 +1,6 @@
 // Firebase initialization and simple helpers for Firestore
 import { initializeApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, collection, addDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, collection, addDoc, deleteDoc, getDoc, getDocs, query } from 'firebase/firestore';
 import { getAuth, signInWithEmailAndPassword, signOut, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
 // Firebase config is best provided via environment variables in React apps.
@@ -235,4 +235,22 @@ export function normalizeDocData(doc) {
   }
 
   return normalized;
+}
+
+export async function findAnnouncementByRouteId(routeId) {
+  if (!db) throw new Error('Firestore not initialized');
+  try {
+    const announcementsCol = collection(db, 'announcements');
+    const snapshot = await getDocs(query(announcementsCol));
+    for (const doc of snapshot.docs) {
+      const data = doc.data();
+      if (data.linkedRouteId === routeId) {
+        return { id: doc.id, ...data };
+      }
+    }
+    return null;
+  } catch (err) {
+    console.error('Error finding announcement by route ID:', err);
+    return null;
+  }
 }

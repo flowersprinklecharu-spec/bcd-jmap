@@ -91,7 +91,7 @@
 }
 
 .announcement-date {
-  font-size: 1rem;
+  font-size: 0.6125rem;
   color: #1f2937;
   font-weight: 500;
   white-space: nowrap;
@@ -389,7 +389,7 @@
   }
 
   .announcement-date {
-    font-size: 0.875rem;
+    font-size: 0.6125rem;
     align-self: flex-start;
   }
 }
