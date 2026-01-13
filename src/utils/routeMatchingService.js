@@ -257,3 +257,249 @@ export function enhanceRoutesWithGPS(routes, userLocation, destination) {
     })
     .sort((a, b) => a.relevanceScore - b.relevanceScore); // Sort by accessibility
 }
+
+/**
+ * Check if a single route is sufficient to reach destination
+ * Returns false if the closest route cannot reasonably serve the destination
+ * @param {Object} enhancedRoutes - Routes with GPS enhancement
+ * @param {number} distanceThresholdKm - Max acceptable distance to destination (default 2km)
+ * @returns {boolean} True if a single route is sufficient, false if multi-leg needed
+ */
+export function isSingleRouteSufficient(enhancedRoutes, distanceThresholdKm = 2) {
+  if (!Array.isArray(enhancedRoutes) || enhancedRoutes.length === 0) {
+    return false; // No routes available
+  }
+
+  // Check the best route (first in sorted array)
+  const bestRoute = enhancedRoutes[0];
+  
+  // If best route's distance to destination is within threshold, single route is sufficient
+  if (bestRoute.distanceToDestination <= distanceThresholdKm) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Find transfer points between two routes
+ * Routes must share at least one major stop AND be geographically close (1-2km)
+ * @param {Object} route1 - First route object with majorStops array and coordinates
+ * @param {Object} route2 - Second route object with majorStops array and coordinates
+ * @param {number} maxDistanceKm - Maximum distance between stops to be considered transfer point (default 2km)
+ * @returns {Array} Transfer points: [{stop1, stop2, distanceKm, lat, lng}, ...]
+ */
+export function findTransferPoints(route1, route2, maxDistanceKm = 2) {
+  const transferPoints = [];
+
+  // Get major stops arrays
+  const stops1 = route1.majorStops || [];
+  const stops2 = route2.majorStops || [];
+
+  // Check for shared stops
+  for (const stop1 of stops1) {
+    for (const stop2 of stops2) {
+      // Check if stops are the same (by name or very close)
+      const stopNameMatch = stop1.name && stop2.name && 
+        stop1.name.toLowerCase() === stop2.name.toLowerCase();
+      
+      const distance = haversineDistance(
+        stop1.lat || stop1[0],
+        stop1.lng || stop1[1],
+        stop2.lat || stop2[0],
+        stop2.lng || stop2[1]
+      );
+
+      // Include if same stop or very close (within maxDistanceKm)
+      if (stopNameMatch || distance <= maxDistanceKm) {
+        transferPoints.push({
+          stop1,
+          stop2,
+          distanceKm: distance,
+          lat: stop1.lat || stop1[0],
+          lng: stop1.lng || stop1[1],
+          stopName: stop1.name || stop2.name || 'Transfer Point'
+        });
+      }
+    }
+  }
+
+  return transferPoints;
+}
+
+/**
+ * Find all possible transfer routes from a given route
+ * Returns routes that can be reached from the current route via transfer points
+ * @param {Object} currentRoute - Current route object
+ * @param {Array} allRoutes - All available routes
+ * @param {number} transferDistanceKm - Max distance between stops (default 2km)
+ * @returns {Array} Connectable routes: [{route, transferPoints, ...}, ...]
+ */
+export function findConnectableRoutes(currentRoute, allRoutes, transferDistanceKm = 2) {
+  if (!Array.isArray(allRoutes) || allRoutes.length === 0) {
+    return [];
+  }
+
+  const connectableRoutes = [];
+
+  for (const otherRoute of allRoutes) {
+    // Skip the same route
+    if (otherRoute.id === currentRoute.id) {
+      continue;
+    }
+
+    // Find transfer points between routes
+    const transferPoints = findTransferPoints(currentRoute, otherRoute, transferDistanceKm);
+
+    // If transfer points exist, add to connectable routes
+    if (transferPoints.length > 0) {
+      connectableRoutes.push({
+        ...otherRoute,
+        transferPoints,
+        numTransferPoints: transferPoints.length,
+        minTransferDistance: Math.min(...transferPoints.map(t => t.distanceKm))
+      });
+    }
+  }
+
+  return connectableRoutes;
+}
+
+/**
+ * Build multi-leg journeys using BFS to find optimal route combinations
+ * @param {Object} userLocation - User's GPS coordinates {lat, lng}
+ * @param {Object} destination - Destination coordinates {lat, lng}
+ * @param {Array} allRoutes - All available routes with enhanced GPS data
+ * @param {number} maxLegs - Maximum number of route segments allowed (default 3)
+ * @returns {Array} Multi-leg journeys: [{legs: [{route, boarding, alighting}, ...], totalDistance, transfers}, ...]
+ */
+export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLegs = 3) {
+  if (!userLocation || !destination || !Array.isArray(allRoutes) || allRoutes.length === 0) {
+    return [];
+  }
+
+  const journeys = [];
+  const visited = new Set(); // Track visited route combinations to avoid duplicates
+
+  // Queue: [{currentRoute, path: [{route, transferPoint}], distance, transfers}]
+  const queue = [];
+
+  // Start with all routes near user location
+  const startingRoutes = findNearbyRoutes(userLocation, allRoutes, 1); // 1km radius
+
+  for (const route of startingRoutes) {
+    queue.push({
+      currentRoute: route,
+      path: [{ route, boarding: userLocation, transferDistance: 0 }],
+      totalDistance: route.distanceFromUser || 0,
+      transfers: 0
+    });
+  }
+
+  // BFS through route combinations
+  while (queue.length > 0) {
+    const { currentRoute, path, totalDistance, transfers } = queue.shift();
+
+    // Check if current route reaches destination
+    const distanceToDestination = distanceToPolyline(
+      destination.lat,
+      destination.lng,
+      currentRoute.coordinates || []
+    );
+
+    // If this route reaches destination, save as valid journey
+    if (distanceToDestination <= 2) { // 2km threshold
+      const completePath = [
+        ...path,
+        { route: currentRoute, alighting: destination, distanceToDestination }
+      ];
+
+      journeys.push({
+        legs: completePath,
+        totalDistance: totalDistance + distanceToDestination,
+        transfers: Math.max(0, path.length - 1),
+        routeIds: completePath.map(l => l.route.id)
+      });
+
+      continue; // Move to next queue item
+    }
+
+    // If we haven't reached max legs, explore transfer routes
+    if (path.length < maxLegs) {
+      const connectableRoutes = findConnectableRoutes(currentRoute, allRoutes, 2);
+
+      for (const nextRoute of connectableRoutes) {
+        // Avoid cycles: skip routes already in path
+        const routeIdInPath = path.some(leg => leg.route.id === nextRoute.id);
+        if (routeIdInPath) {
+          continue;
+        }
+
+        // Use first (closest) transfer point
+        const transferPoint = nextRoute.transferPoints[0];
+        const newPath = [
+          ...path,
+          {
+            route: currentRoute,
+            alighting: {
+              lat: transferPoint.lat,
+              lng: transferPoint.lng,
+              name: transferPoint.stopName
+            },
+            distanceToTransfer: transferPoint.distanceKm
+          }
+        ];
+
+        const newDistance = totalDistance + (transferPoint.distanceKm || 0);
+
+        // Add to queue for further exploration
+        queue.push({
+          currentRoute: nextRoute,
+          path: newPath,
+          totalDistance: newDistance,
+          transfers: transfers + 1
+        });
+      }
+    }
+  }
+
+  return journeys;
+}
+
+/**
+ * Rank and optimize multi-leg journeys
+ * Prioritizes: fewest transfers, then minimum distance, then estimated time
+ * @param {Array} journeys - Multi-leg journeys from findMultiLegJourneys
+ * @returns {Array} Ranked journeys, best first
+ */
+export function rankMultiLegJourneys(journeys) {
+  if (!Array.isArray(journeys) || journeys.length === 0) {
+    return [];
+  }
+
+  // Score journeys: lower is better
+  const scoredJourneys = journeys.map(journey => {
+    // Primary: Number of transfers (0 transfers = best)
+    const transferScore = journey.transfers * 100;
+
+    // Secondary: Total distance in km (normalize to 0-100 scale, assume 10km = 100 points)
+    const distanceScore = (journey.totalDistance / 10) * 20;
+
+    // Tertiary: Estimated time (assume 20km/h average speed)
+    const estimatedTimeHours = journey.totalDistance / 20;
+    const timeScore = estimatedTimeHours * 10;
+
+    const totalScore = transferScore + distanceScore + timeScore;
+
+    return {
+      ...journey,
+      score: totalScore,
+      estimatedTimeMinutes: Math.round(estimatedTimeHours * 60)
+    };
+  });
+
+  // Sort by score (lower is better)
+  scoredJourneys.sort((a, b) => a.score - b.score);
+
+  return scoredJourneys;
+}

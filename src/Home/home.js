@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db, normalizeDocData } from '../firebase';
 import { geocodeAddress, reverseGeocode } from '../utils/geocodingService';
-import { findNearbyRoutes, formatDistance, searchRoutesByNameOrProximity, getRadiusFromZoom, enhanceRoutesWithGPS } from '../utils/routeMatchingService';
+import { findNearbyRoutes, formatDistance, searchRoutesByNameOrProximity, getRadiusFromZoom, enhanceRoutesWithGPS, isSingleRouteSufficient, findMultiLegJourneys, rankMultiLegJourneys } from '../utils/routeMatchingService';
 import { calculateBounds, addPaddingToBounds } from '../utils/boundsCalculator';
 import FeedbackForm from '../Feedback/FeedbackForm';
 import LocationSelector from '../components/LocationSelector';
@@ -49,6 +49,8 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
   const [landmarks, setLandmarks] = useState([]);
   const [announcements, setAnnouncements] = useState([]);
   const [suggestedRoutes, setSuggestedRoutes] = useState([]);
+  const [multiLegJourneys, setMultiLegJourneys] = useState([]); // Multi-leg route suggestions
+  const [selectedMultiLegJourney, setSelectedMultiLegJourney] = useState(null); // Selected multi-leg journey
   const [highlightedStops, setHighlightedStops] = useState([]);
   const [selectedDestinationCoords, setSelectedDestinationCoords] = useState(null);
   const [zoomBounds, setZoomBounds] = useState(null); // For smart zoom on route selection
@@ -438,6 +440,47 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
     console.log(`📊 Search method: ${searchMethod}, Routes selected: ${routesToSuggest.length}`);
     console.log(`🏷️ Search type: ${searchType || 'unknown'}`);
 
+    // NEW: Check if single route is sufficient
+    const singleRouteSufficient = isSingleRouteSufficient(routesToSuggest, 2); // 2km threshold
+
+    if (!singleRouteSufficient && matchingLandmark && matchingLandmark.coordinates) {
+      console.log('🚌 Single route insufficient! Looking for multi-leg journeys...');
+      
+      // Find multi-leg journeys if user location is available
+      if (userLocation) {
+        const multiLegOptions = findMultiLegJourneys(
+          userLocation,
+          matchingLandmark.coordinates,
+          jeepneyRoutes,
+          3 // Max 3 legs
+        );
+
+        if (multiLegOptions.length > 0) {
+          // Rank the journeys by optimization criteria
+          const rankedJourneys = rankMultiLegJourneys(multiLegOptions);
+          console.log(`✅ Found ${rankedJourneys.length} multi-leg journeys, best has ${rankedJourneys[0].transfers} transfer(s)`);
+          
+          setMultiLegJourneys(rankedJourneys);
+          
+          // Use best multi-leg journey as primary suggestion
+          if (rankedJourneys.length > 0) {
+            setSelectedMultiLegJourney(rankedJourneys[0]);
+            routesToSuggest = []; // Clear single route suggestions
+          }
+        } else {
+          console.log('⚠️ No multi-leg journeys found even with transfers');
+          setMultiLegJourneys([]);
+        }
+      } else {
+        console.log('⚠️ User location not available for multi-leg journey planning');
+        setMultiLegJourneys([]);
+      }
+    } else {
+      // Single route is sufficient, clear multi-leg options
+      setMultiLegJourneys([]);
+      setSelectedMultiLegJourney(null);
+    }
+
     setSuggestedRoutes(routesToSuggest);
     
     // NEW: Transition to viewing suggestions phase after routes are found
@@ -764,6 +807,79 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
                     fontSize: '14px'
                   }}>
                     ℹ️ "{destination}" not found in system - showing jeepneys closest to you
+                  </div>
+                )}
+                
+                {multiLegJourneys.length > 0 && (
+                  <div>
+                    <div style={{
+                      padding: '0.75rem 1rem',
+                      marginBottom: '1rem',
+                      backgroundColor: '#fff7ed',
+                      borderLeft: '4px solid #f97316',
+                      borderRadius: '0.375rem',
+                      color: '#7c2d12',
+                      fontSize: '14px',
+                      fontWeight: 'bold'
+                    }}>
+                      🚌 Multi-Leg Journey Options (Transfer Required)
+                    </div>
+
+                    <div className="multi-leg-journeys">
+                      {multiLegJourneys.map((journey, idx) => (
+                        <div
+                          key={idx}
+                          className="multi-leg-journey-item"
+                          onClick={() => {
+                            setSelectedMultiLegJourney(journey);
+                            setSearchPhase('viewing-route');
+                            setShowRouteDetails(true);
+                          }}
+                          style={{
+                            padding: '1rem',
+                            marginBottom: '0.75rem',
+                            backgroundColor: idx === 0 ? '#fef3c7' : '#fafaf9',
+                            border: idx === 0 ? '2px solid #f97316' : '1px solid #e5e7eb',
+                            borderRadius: '0.5rem',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 'bold' }}>
+                              {journey.legs.map((leg, i) => (
+                                <span key={i}>
+                                  {leg.route.number}
+                                  {i < journey.legs.length - 1 ? ' → ' : ''}
+                                </span>
+                              ))}
+                            </h4>
+                            {idx === 0 && <span style={{ backgroundColor: '#f97316', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem', fontWeight: 'bold' }}>BEST</span>}
+                          </div>
+                          
+                          <div style={{ fontSize: '0.875rem', color: '#666', marginBottom: '0.5rem' }}>
+                            <p style={{ margin: '0.25rem 0' }}>
+                              🔄 Transfers: <strong>{journey.transfers}</strong> {journey.transfers === 1 ? 'transfer' : 'transfers'}
+                            </p>
+                            <p style={{ margin: '0.25rem 0' }}>
+                              📏 Distance: <strong>{journey.totalDistance.toFixed(2)}km</strong>
+                            </p>
+                            <p style={{ margin: '0.25rem 0' }}>
+                              ⏱️ Estimated Time: <strong>{journey.estimatedTimeMinutes}min</strong>
+                            </p>
+                          </div>
+
+                          <div style={{ fontSize: '0.8rem', color: '#888', marginTop: '0.5rem' }}>
+                            Journey: {journey.legs.map((leg, i) => (
+                              <span key={i}>
+                                {leg.route.name}
+                                {i < journey.legs.length - 1 ? ` → Transfer at ${leg.alighting.name || 'stop'} → ` : ' → Destination'}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
                 
