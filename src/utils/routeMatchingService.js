@@ -608,8 +608,26 @@ export function rankMultiLegJourneys(journeys) {
     return [];
   }
 
+  // Filter out journeys where none of the legs' routes pass near the destination (e.g., >2km from any point on any leg's route to the destination)
+  const filteredJourneys = journeys.filter(journey => {
+    if (!journey.legs || journey.legs.length === 0) return false;
+    const destLat = journey.legs[journey.legs.length-1].alighting.lat;
+    const destLng = journey.legs[journey.legs.length-1].alighting.lng;
+    for (const leg of journey.legs) {
+      const coords = leg.route.coordinates || [];
+      for (const coord of coords) {
+        const lat = coord.lat || coord[0];
+        const lng = coord.lng || coord[1];
+        if (haversineDistance(lat, lng, destLat, destLng) <= 2) {
+          return true;
+        }
+      }
+    }
+    return false;
+  });
+
   // Score journeys: lower is better
-  const scoredJourneys = journeys.map(journey => {
+  const scoredJourneys = filteredJourneys.map(journey => {
     // Primary: Number of transfers (0 transfers = best)
     const transferScore = journey.transfers * 100;
 
@@ -632,5 +650,6 @@ export function rankMultiLegJourneys(journeys) {
   // Sort by score (lower is better)
   scoredJourneys.sort((a, b) => a.score - b.score);
 
-  return scoredJourneys;
+  // Limit to top 3 best journeys
+  return scoredJourneys.slice(0, 3);
 }
