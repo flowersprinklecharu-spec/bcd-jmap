@@ -398,10 +398,29 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
   // Queue: [{currentRoute, path: [{route, boarding, alighting}], totalDistance, transfers}]
   const queue = [];
 
-  // Start with all routes near user location
+  // Start with all routes near user location, but force at least one transfer (no direct routes allowed)
   const startingRoutes = findNearbyRoutes(userLocation, allRoutes, 1); // 1km radius
-
   for (const route of startingRoutes) {
+    // Always skip direct routes for multi-leg search
+    const destinationIsOnRoute = distanceToPolyline(destination.lat, destination.lng, route.coordinates || []) <= 2;
+    const userIsOnRoute = distanceToPolyline(userLocation.lat, userLocation.lng, route.coordinates || []) <= 2;
+    if (destinationIsOnRoute && userIsOnRoute) {
+      if (route.majorStops && Array.isArray(route.majorStops)) {
+        let userIdx = -1, destIdx = -1;
+        route.majorStops.forEach((stop, idx) => {
+          let lat = stop.lat ?? (stop.coordinates ? stop.coordinates[0] : undefined);
+          let lng = stop.lng ?? (stop.coordinates ? stop.coordinates[1] : undefined);
+          if (lat !== undefined && lng !== undefined) {
+            if (haversineDistance(userLocation.lat, userLocation.lng, lat, lng) < 0.3) userIdx = idx;
+            if (haversineDistance(destination.lat, destination.lng, lat, lng) < 0.3) destIdx = idx;
+          }
+        });
+        if (userIdx !== -1 && destIdx !== -1 && userIdx < destIdx) {
+          // This is a direct route, skip for multi-leg
+          continue;
+        }
+      }
+    }
     queue.push({
       currentRoute: route,
       path: [{
@@ -449,13 +468,16 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
           filteredLegs.push(leg);
         }
       }
-      journeys.push({
-        legs: filteredLegs,
-        totalDistance: totalDistance + distanceToDestination,
-        transfers: Math.max(0, filteredLegs.length - 1),
-        routeIds: filteredLegs.map(l => l.route.id),
-        walkToDestination: null
-      });
+      // Only accept journeys with at least two legs (one transfer)
+      if (filteredLegs.length >= 2) {
+        journeys.push({
+          legs: filteredLegs,
+          totalDistance: totalDistance + distanceToDestination,
+          transfers: Math.max(0, filteredLegs.length - 1),
+          routeIds: filteredLegs.map(l => l.route.id),
+          walkToDestination: null
+        });
+      }
       continue; // Move to next queue item
     }
 
@@ -470,10 +492,9 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
           continue;
         }
 
-        // Use first (closest) transfer point
-        const transferPoint = nextRoute.transferPoints[0];
+        // Use first (closest) transfer point, but prefer named transfer points (e.g., Libertad Public Market)
+        let transferPoint = nextRoute.transferPoints.find(tp => tp.stopName && tp.stopName.toLowerCase().includes('libertad')) || nextRoute.transferPoints[0];
         // Set alighting for current leg and boarding for next leg
-        // Always close the previous leg and start a new one for the transfer
         const newPath = [
           ...path.slice(0, -1),
           {
