@@ -398,16 +398,19 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
   // Queue: [{currentRoute, path: [{route, boarding, alighting}], totalDistance, transfers}]
   const queue = [];
 
-  // Start with all routes near user location, but force at least one transfer (no direct routes allowed)
-  const startingRoutes = findNearbyRoutes(userLocation, allRoutes, 1); // 1km radius
-  for (const route of startingRoutes) {
-    // Always skip direct routes for multi-leg search
-    const destinationIsOnRoute = distanceToPolyline(destination.lat, destination.lng, route.coordinates || []) <= 2;
-    const userIsOnRoute = distanceToPolyline(userLocation.lat, userLocation.lng, route.coordinates || []) <= 2;
-    if (destinationIsOnRoute && userIsOnRoute) {
-      if (route.majorStops && Array.isArray(route.majorStops)) {
+  // Find all routes near user and all routes near destination
+  const userNearbyRoutes = findNearbyRoutes(userLocation, allRoutes, 1); // 1km radius
+  const destNearbyRoutes = findNearbyRoutes(destination, allRoutes, 2); // 2km radius
+
+  // For each user-nearby route, check for intersection with any destination-nearby route
+  for (const routeA of userNearbyRoutes) {
+    // Skip if routeA is a direct route from user to destination
+    const destinationIsOnA = distanceToPolyline(destination.lat, destination.lng, routeA.coordinates || []) <= 2;
+    const userIsOnA = distanceToPolyline(userLocation.lat, userLocation.lng, routeA.coordinates || []) <= 2;
+    if (destinationIsOnA && userIsOnA) {
+      if (routeA.majorStops && Array.isArray(routeA.majorStops)) {
         let userIdx = -1, destIdx = -1;
-        route.majorStops.forEach((stop, idx) => {
+        routeA.majorStops.forEach((stop, idx) => {
           let lat = stop.lat ?? (stop.coordinates ? stop.coordinates[0] : undefined);
           let lng = stop.lng ?? (stop.coordinates ? stop.coordinates[1] : undefined);
           if (lat !== undefined && lng !== undefined) {
@@ -421,16 +424,69 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
         }
       }
     }
-    queue.push({
-      currentRoute: route,
-      path: [{
-        route,
-        boarding: { ...userLocation, name: userLocation.name || 'Your location' },
-        // alighting will be set when a transfer or destination is found
-      }],
-      totalDistance: route.distanceFromUser || 0,
-      transfers: 0
-    });
+    for (const routeB of destNearbyRoutes) {
+      if (routeA.id === routeB.id) continue;
+      // Find intersection points between routeA and routeB (within 0.2km)
+      const transferPoints = findTransferPoints(routeA, routeB, 0.2);
+      for (const tp of transferPoints) {
+        // Build a two-leg journey: user -> transfer -> destination
+        const leg1 = {
+          route: routeA,
+          boarding: { ...userLocation, name: userLocation.name || 'Your location' },
+          alighting: { lat: tp.lat, lng: tp.lng, name: tp.stopName || 'Transfer Point' }
+        };
+        const leg2 = {
+          route: routeB,
+          boarding: { lat: tp.lat, lng: tp.lng, name: tp.stopName || 'Transfer Point' },
+          alighting: { ...destination, name: destination.name || 'Your destination' }
+        };
+        journeys.push({
+          legs: [leg1, leg2],
+          totalDistance: (leg1.distanceToTransfer || 0) + (leg2.distanceToDestination || 0),
+          transfers: 1,
+          routeIds: [routeA.id, routeB.id],
+          walkToDestination: null
+        });
+      }
+    }
+  }
+  // Fallback: If no valid 2-leg journeys, use original BFS for 3+ legs
+  if (journeys.length === 0) {
+    // ...existing code for BFS multi-leg search...
+    const startingRoutes = findNearbyRoutes(userLocation, allRoutes, 1); // 1km radius
+    for (const route of startingRoutes) {
+      // Always skip direct routes for multi-leg search
+      const destinationIsOnRoute = distanceToPolyline(destination.lat, destination.lng, route.coordinates || []) <= 2;
+      const userIsOnRoute = distanceToPolyline(userLocation.lat, userLocation.lng, route.coordinates || []) <= 2;
+      if (destinationIsOnRoute && userIsOnRoute) {
+        if (route.majorStops && Array.isArray(route.majorStops)) {
+          let userIdx = -1, destIdx = -1;
+          route.majorStops.forEach((stop, idx) => {
+            let lat = stop.lat ?? (stop.coordinates ? stop.coordinates[0] : undefined);
+            let lng = stop.lng ?? (stop.coordinates ? stop.coordinates[1] : undefined);
+            if (lat !== undefined && lng !== undefined) {
+              if (haversineDistance(userLocation.lat, userLocation.lng, lat, lng) < 0.3) userIdx = idx;
+              if (haversineDistance(destination.lat, destination.lng, lat, lng) < 0.3) destIdx = idx;
+            }
+          });
+          if (userIdx !== -1 && destIdx !== -1 && userIdx < destIdx) {
+            // This is a direct route, skip for multi-leg
+            continue;
+          }
+        }
+      }
+      queue.push({
+        currentRoute: route,
+        path: [{
+          route,
+          boarding: { ...userLocation, name: userLocation.name || 'Your location' },
+          // alighting will be set when a transfer or destination is found
+        }],
+        totalDistance: route.distanceFromUser || 0,
+        transfers: 0
+      });
+    }
+    // ...existing BFS code continues...
   }
 
   // BFS through route combinations
@@ -504,8 +560,8 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
 
     // If we haven't reached max legs, explore transfer routes
     if (path.length < maxLegs) {
-      // Increase transfer distance threshold to 0.5km (was 0.05km default in findTransferPoints)
-      const connectableRoutes = findConnectableRoutes(currentRoute, allRoutes, 0.5);
+      // Tighten transfer distance threshold to 0.2km (200m) for realistic transfers
+      const connectableRoutes = findConnectableRoutes(currentRoute, allRoutes, 0.2);
 
       for (const nextRoute of connectableRoutes) {
         // Avoid cycles: skip routes already in path
@@ -514,11 +570,18 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
           continue;
         }
 
-        // Prefer named transfer points, but allow proximity-based if none named
-        let transferPoint = nextRoute.transferPoints.find(tp => tp.stopName && tp.stopName.toLowerCase().includes('libertad'))
-          || nextRoute.transferPoints.find(tp => tp.stopName)
-          || nextRoute.transferPoints[0];
-        if (!transferPoint) continue; // No valid transfer point
+        // Only allow transfer points that are within 0.2km of both routes
+        let validTransferPoint = null;
+        for (const tp of nextRoute.transferPoints) {
+          // Check if transfer point is close to both currentRoute and nextRoute
+          const distToCurrent = distanceToPolyline(tp.lat, tp.lng, currentRoute.coordinates || []);
+          const distToNext = distanceToPolyline(tp.lat, tp.lng, nextRoute.coordinates || []);
+          if (distToCurrent <= 0.2 && distToNext <= 0.2) {
+            validTransferPoint = tp;
+            break;
+          }
+        }
+        if (!validTransferPoint) continue; // No valid transfer point
 
         // Set alighting for current leg and boarding for next leg
         const newPath = [
@@ -526,22 +589,22 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
           {
             ...path[path.length - 1],
             alighting: {
-              lat: transferPoint.lat,
-              lng: transferPoint.lng,
-              name: transferPoint.stopName || 'Transfer Point'
+              lat: validTransferPoint.lat,
+              lng: validTransferPoint.lng,
+              name: validTransferPoint.stopName || 'Transfer Point'
             },
           },
           {
             route: nextRoute,
             boarding: {
-              lat: transferPoint.lat,
-              lng: transferPoint.lng,
-              name: transferPoint.stopName || 'Transfer Point'
+              lat: validTransferPoint.lat,
+              lng: validTransferPoint.lng,
+              name: validTransferPoint.stopName || 'Transfer Point'
             }
           }
         ];
 
-        const newDistance = totalDistance + (transferPoint.distanceKm || 0);
+        const newDistance = totalDistance + (validTransferPoint.distanceKm || 0);
 
         // Add to queue for further exploration
         queue.push({
@@ -650,6 +713,10 @@ export function rankMultiLegJourneys(journeys) {
   // Sort by score (lower is better)
   scoredJourneys.sort((a, b) => a.score - b.score);
 
-  // Limit to top 3 best journeys
+  // Prioritize 2-leg journeys, only show 3-leg if no valid 2-leg exist
+  const twoLeg = scoredJourneys.filter(j => j.legs.length === 2);
+  if (twoLeg.length > 0) {
+    return twoLeg.slice(0, 3);
+  }
   return scoredJourneys.slice(0, 3);
 }

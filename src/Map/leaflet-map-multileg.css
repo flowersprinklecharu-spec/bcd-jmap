@@ -12,3 +12,17 @@
   color: #f97316;
   margin-bottom: 0.5rem;
 }
+.multi-leg-journeys-panel ol {
+  padding-left: 1.5rem;
+}
+.multi-leg-journeys-panel li {
+  margin-bottom: 0.5rem;
+  background: #fff;
+  border-radius: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid #f97316;
+  list-style: decimal inside;
+}
+.multi-leg-journeys-panel li span {
+  font-size: 0.95em;
+}
