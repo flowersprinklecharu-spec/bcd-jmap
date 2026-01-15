@@ -447,7 +447,7 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
     // If this route reaches destination, save as valid journey
     if (distanceToDestination <= 2) { // 2km threshold
       // Build legs as true segments: each with boarding, alighting, and route
-      const legs = [];
+      let legs = [];
       for (let i = 0; i < path.length; i++) {
         const seg = { ...path[i] };
         // Set alighting for all but last leg (if not already set)
@@ -461,12 +461,33 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
         legs[legs.length - 1].alighting = { ...destination, name: destination.name || 'Your destination' };
       }
       // Fix: ensure all legs have both boarding and alighting, and filter out any zero-length legs
-      const filteredLegs = [];
+      let filteredLegs = [];
       for (let i = 0; i < legs.length; i++) {
         const leg = legs[i];
         if (leg.boarding && leg.alighting && leg.route) {
           filteredLegs.push(leg);
         }
+      }
+      // Ensure last leg is the route that passes through the destination
+      if (filteredLegs.length >= 2) {
+        // Find the leg whose route passes closest to the destination
+        let lastIdx = filteredLegs.length - 1;
+        let minDist = Infinity;
+        for (let i = 0; i < filteredLegs.length; i++) {
+          const leg = filteredLegs[i];
+          const dist = distanceToPolyline(destination.lat, destination.lng, leg.route.coordinates || []);
+          if (dist < minDist) {
+            minDist = dist;
+            lastIdx = i;
+          }
+        }
+        // Move the leg passing closest to the destination to the end
+        if (lastIdx !== filteredLegs.length - 1) {
+          const lastLeg = filteredLegs.splice(lastIdx, 1)[0];
+          filteredLegs.push(lastLeg);
+        }
+        // Set its alighting to destination
+        filteredLegs[filteredLegs.length - 1].alighting = { ...destination, name: destination.name || 'Your destination' };
       }
       // Only accept journeys with at least two legs (one transfer)
       if (filteredLegs.length >= 2) {
@@ -483,7 +504,8 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
 
     // If we haven't reached max legs, explore transfer routes
     if (path.length < maxLegs) {
-      const connectableRoutes = findConnectableRoutes(currentRoute, allRoutes, 2);
+      // Increase transfer distance threshold to 0.5km (was 0.05km default in findTransferPoints)
+      const connectableRoutes = findConnectableRoutes(currentRoute, allRoutes, 0.5);
 
       for (const nextRoute of connectableRoutes) {
         // Avoid cycles: skip routes already in path
@@ -492,8 +514,12 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
           continue;
         }
 
-        // Use first (closest) transfer point, but prefer named transfer points (e.g., Libertad Public Market)
-        let transferPoint = nextRoute.transferPoints.find(tp => tp.stopName && tp.stopName.toLowerCase().includes('libertad')) || nextRoute.transferPoints[0];
+        // Prefer named transfer points, but allow proximity-based if none named
+        let transferPoint = nextRoute.transferPoints.find(tp => tp.stopName && tp.stopName.toLowerCase().includes('libertad'))
+          || nextRoute.transferPoints.find(tp => tp.stopName)
+          || nextRoute.transferPoints[0];
+        if (!transferPoint) continue; // No valid transfer point
+
         // Set alighting for current leg and boarding for next leg
         const newPath = [
           ...path.slice(0, -1),
@@ -502,7 +528,7 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
             alighting: {
               lat: transferPoint.lat,
               lng: transferPoint.lng,
-              name: transferPoint.stopName
+              name: transferPoint.stopName || 'Transfer Point'
             },
           },
           {
@@ -510,7 +536,7 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
             boarding: {
               lat: transferPoint.lat,
               lng: transferPoint.lng,
-              name: transferPoint.stopName
+              name: transferPoint.stopName || 'Transfer Point'
             }
           }
         ];
