@@ -14,6 +14,7 @@ import '../components/destination-selector.css';
 import LeafletMap from '../Map/LeafletMap';
 function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
 
+
   // --- State variables ---
   const [landmarks, setLandmarks] = useState([]);
   const [destination, setDestination] = useState("");
@@ -27,6 +28,7 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
   const [destinationDescription, setDestinationDescription] = useState("");
   const [currentZoom, setCurrentZoom] = useState(15);
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
+
   const [multiLegJourneys, setMultiLegJourneys] = useState([]); // State for multi-leg journeys
   const [directRoutes, setDirectRoutes] = useState([]); // State for direct (one-way) routes
   const [hasDirectRoute, setHasDirectRoute] = useState(false); // Robust flag for direct route
@@ -42,6 +44,13 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
   const [selectedMultiLegJourney, setSelectedMultiLegJourney] = useState(null);
   const [userLocationName, setUserLocationName] = useState(null);
   const routeDetailsRef = useRef(null);
+
+  // Always clear multi-leg journeys if a direct route is available
+  useEffect(() => {
+    if (hasDirectRoute && multiLegJourneys.length > 0) {
+      setMultiLegJourneys([]);
+    }
+  }, [hasDirectRoute, multiLegJourneys]);
 
   // --- Utility function for fallback ---
   const calculateDistance = (lat1, lng1, lat2, lng2) => {
@@ -188,27 +197,36 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
       console.log('📍 Setting selected destination coords:', coords);
       setSelectedDestinationCoords(coords);
 
-      // --- Direct route detection logic ---
+      // --- Improved direct route detection logic ---
       // Only run if both userLocation and coords are available
       if (userLocation && coords.length === 2) {
-        // Prepare destination as object for enhanceRoutesWithGPS
+        const userObj = { lat: userLocation.lat, lng: userLocation.lng };
         const destinationObj = { lat: coords[0], lng: coords[1] };
-        // Enhance all routes with GPS data
-        const enhancedRoutes = enhanceRoutesWithGPS(jeepneyRoutes, userLocation, destinationObj);
-        // Filter for direct routes (distance to destination <= 2km by default)
-        // AND that have the selected destination as a major stop
-        const direct = enhancedRoutes.filter(r => {
-          if (r.distanceToDestination > 2) return false;
-          if (!r.majorStops || !Array.isArray(r.majorStops)) return false;
-          return r.majorStops.some(stop => {
-            const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-            return stopName.toLowerCase() === destination.toLowerCase();
+        // For each route, check if user and destination are close to stops, and user stop comes before destination stop
+        const direct = jeepneyRoutes.filter(route => {
+          if (!route.majorStops || !Array.isArray(route.majorStops)) return false;
+          // Find closest stop to user
+          let minUserDist = Infinity, userIdx = -1;
+          let minDestDist = Infinity, destIdx = -1;
+          route.majorStops.forEach((stop, idx) => {
+            let lat = stop.lat ?? (stop.coordinates ? stop.coordinates[0] : undefined);
+            let lng = stop.lng ?? (stop.coordinates ? stop.coordinates[1] : undefined);
+            if (lat !== undefined && lng !== undefined) {
+              const userDist = calculateDistance(userObj.lat, userObj.lng, lat, lng);
+              const destDist = calculateDistance(destinationObj.lat, destinationObj.lng, lat, lng);
+              if (userDist < minUserDist) { minUserDist = userDist; userIdx = idx; }
+              if (destDist < minDestDist) { minDestDist = destDist; destIdx = idx; }
+            }
           });
+          // Only consider if both are within 0.3km (300m) of a stop
+          if (minUserDist > 0.3 || minDestDist > 0.3) return false;
+          // User stop must come before destination stop
+          if (userIdx === -1 || destIdx === -1 || userIdx >= destIdx) return false;
+          return true;
         });
         setDirectRoutes(direct);
         setHasDirectRoute(direct.length > 0);
         if (direct.length > 0) {
-          // Hide multi-leg journeys if direct route exists
           setMultiLegJourneys([]);
           setSuggestedRoutes(direct);
           setSearchType('system');
@@ -372,27 +390,42 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
               </div>
               {/* Multi-leg journey panel above the map (only if no direct route) */}
               {!hasDirectRoute && multiLegJourneys && multiLegJourneys.length > 0 && (
-                <div className="multi-leg-journeys-panel">
-                  <h3>🚌 Multi-Leg Journey Options</h3>
-                  <ol>
+                <div className="multi-leg-journeys-panel" style={{ background: '#fff7ed', border: '1px solid #f59e42', borderRadius: '10px', padding: '1.2em', marginBottom: '1.5em' }}>
+                  <h3 style={{ color: '#f59e42', marginBottom: '0.7em' }}>🚌 Multi-Leg Journey Options</h3>
+                  <ol style={{ paddingLeft: '1.2em', margin: 0 }}>
                     {multiLegJourneys.slice(0, 5).map((journey, idx) => (
-                      <li key={idx}>
-                        {journey.legs.map((leg, i) => (
-                          <span key={i}>
-                            <b>{leg.route.number}</b>{i < journey.legs.length - 1 ? ' → ' : ''}
-                          </span>
-                        ))}
-                        <span style={{color: '#666', fontSize: '0.9em'}}> (Transfers: {journey.transfers}, Distance: {journey.totalDistance.toFixed(2)}km)</span>
-                        {journey.walkToDestination && (
-                          <span style={{color: '#f59e42', marginLeft: '0.5em'}}>+ Walk {journey.walkToDestination.distanceKm.toFixed(2)}km to destination</span>
-                        )}
+                      <li key={idx} style={{ marginBottom: '1em', background: '#fff', borderRadius: '7px', boxShadow: '0 1px 4px #f59e4222', padding: '0.7em 1em' }}>
+                        <div style={{ fontWeight: 500, color: '#f59e42', marginBottom: '0.3em' }}>Option {idx + 1}</div>
+                        <div style={{ fontSize: '1.05em', marginBottom: '0.4em' }}>
+                          {journey.legs.map((leg, i) => (
+                            <span key={i}>
+                              <b style={{ color: '#6366f1' }}>{leg.route.name}</b>{i < journey.legs.length - 1 ? <span style={{ color: '#aaa' }}> → </span> : ''}
+                            </span>
+                          ))}
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: '1.1em', fontSize: '0.97em', color: '#444' }}>
+                          {journey.legs.map((leg, i) => (
+                            <li key={i} style={{ marginBottom: '0.2em' }}>
+                              Ride <b style={{ color: '#6366f1' }}>{leg.route.name}</b> from <b>{leg.boarding?.name || 'Boarding Point'}</b> to <b>{leg.alighting?.name || (i === journey.legs.length - 1 ? 'Your destination' : 'Transfer Point')}</b>.
+                              {i < journey.legs.length - 1 && (
+                                <span style={{ color: '#f59e42', marginLeft: '0.3em' }}>Transfer to next jeepney at <b>{leg.alighting?.name || 'Transfer Point'}</b>.</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                        <div style={{ fontSize: '0.93em', color: '#666', marginTop: '0.5em' }}>
+                          Transfers: <b>{journey.transfers}</b> &nbsp;|&nbsp; Total Distance: <b>{journey.totalDistance.toFixed(2)} km</b>
+                          {journey.walkToDestination && (
+                            <span style={{ color: '#f59e42', marginLeft: '0.7em' }}>+ Walk {journey.walkToDestination.distanceKm.toFixed(2)} km to destination</span>
+                          )}
+                        </div>
                       </li>
                     ))}
                   </ol>
                 </div>
               )}
-              {/* Available Jeepneys section */}
-              {suggestedRoutes.length > 0 && (
+              {/* Available Jeepneys section: only show if hasDirectRoute is true */}
+              {hasDirectRoute && suggestedRoutes.length > 0 && (
                 <div className="card suggested-jeepneys">
                   <h2 className="card-title">Available Jeepneys to {destination}</h2>
                   {/* Search type feedback message */}
@@ -431,29 +464,29 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
                           <div className="suggested-route-arrow">{expandedRouteId === route.id ? '▼' : '→'}</div>
                         </div>
                         {expandedRouteId === route.id && (
-                          <div className="route-details-expanded">
-                            <div className="route-details">
-                              <div className="route-details-content">
-                                <div className="route-info">
-                                  <h3 className="route-name">{route.name}</h3>
-                                  <p className="route-distance">Complete Route Loop</p>
-                                  <div className="route-stats">
+                          <div className="route-details-expanded" style={{ fontSize: '0.97rem', lineHeight: 1.5, padding: '12px 0' }}>
+                            <div className="route-details" style={{ padding: 0 }}>
+                              <div className="route-details-content" style={{ padding: 0 }}>
+                                <div className="route-info" style={{ fontSize: '0.97rem', color: '#222', fontWeight: 400 }}>
+                                  <h3 className="route-name" style={{ fontSize: '1.1rem', margin: '0 0 0.3em 0', fontWeight: 600 }}>{route.name}</h3>
+                                  <p className="route-distance" style={{ fontSize: '0.93rem', color: '#666', margin: '0 0 0.7em 0' }}>Complete Route Loop</p>
+                                  <div className="route-stats" style={{ display: 'flex', gap: '1.5em', marginBottom: '0.7em' }}>
                                     <div>
-                                      <p className="stat-label">Fare:</p>
-                                      <p className="stat-value">{route.fare || '₱11.00 - ₱15.00'}</p>
+                                      <p className="stat-label" style={{ fontSize: '0.85em', color: '#888', margin: 0 }}>Fare:</p>
+                                      <p className="stat-value" style={{ fontSize: '1.05em', color: '#222', margin: 0 }}>{route.fare || '₱11.00 - ₱15.00'}</p>
                                     </div>
                                     <div>
-                                      <p className="stat-label">Travel Time:</p>
-                                      <p className="stat-value">{route.travelTime || '30-45 mins'}</p>
+                                      <p className="stat-label" style={{ fontSize: '0.85em', color: '#888', margin: 0 }}>Travel Time:</p>
+                                      <p className="stat-value" style={{ fontSize: '1.05em', color: '#222', margin: 0 }}>{route.travelTime || '30-45 mins'}</p>
                                     </div>
                                     <div>
-                                      <p className="stat-label">Next Jeepney:</p>
-                                      <p className="stat-value">~5 mins</p>
+                                      <p className="stat-label" style={{ fontSize: '0.85em', color: '#888', margin: 0 }}>Next Jeepney:</p>
+                                      <p className="stat-value" style={{ fontSize: '1.05em', color: '#222', margin: 0 }}>~5 mins</p>
                                     </div>
                                   </div>
                                   <div>
-                                    <p className="route-desc-label">Route Description:</p>
-                                    <p className="route-desc-text">{route.description || 'This route is part of the Bacolod City LPTRP.'}</p>
+                                    <p className="route-desc-label" style={{ fontSize: '0.85em', color: '#888', margin: 0 }}>Route Description:</p>
+                                    <p className="route-desc-text" style={{ fontSize: '0.97em', color: '#444', margin: 0 }}>{route.description || 'This route is part of the Bacolod City LPTRP.'}</p>
                                   </div>
                                 </div>
                               </div>
@@ -484,6 +517,8 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
                 searchPhase={searchPhase}
                 showOnlyDestination={showOnlyDestination}
                 showOnlySuggestedRoutes={showOnlySuggestedRoutes}
+                hasDirectRoute={hasDirectRoute}
+                directRoutes={directRoutes}
               />
             </div>
             {/* Sidebar restored as before */}

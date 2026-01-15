@@ -384,6 +384,7 @@ const renderDirectionsPanel = (multiLegJourney, userLocation, selectedDestinatio
   );
 };
 
+
 const LeafletMap = (props) => {
   const {
     routes = [],
@@ -404,7 +405,9 @@ const LeafletMap = (props) => {
     searchPhase = 'idle',
     showOnlyDestination = false,
     showOnlySuggestedRoutes = false,
-    onZoomChange
+    onZoomChange,
+    hasDirectRoute = false,
+    directRoutes = []
   } = props;
 
   // Multi-leg journey state
@@ -444,10 +447,16 @@ const LeafletMap = (props) => {
   const bacolodboundsCenter = [10.6475, 123.0125]; // Center of Bacolod City
   const center = userLocation ? [userLocation.lat, userLocation.lng] : bacolodboundsCenter;
 
+  // Filtered routes for polylines: if hasDirectRoute, only show directRoutes; else, show all routes
+  const polylineRoutes = hasDirectRoute && directRoutes.length > 0 ? directRoutes : routes;
+
+  // Cap zoom to 16 if showing direct route
+  const mapZoom = hasDirectRoute ? 16 : 10;
+
   return (
     <>
       {/* Always show multi-leg journey panel if any journeys exist */}
-      {allMultiLegJourneys && allMultiLegJourneys.length > 0 && (
+      {allMultiLegJourneys && allMultiLegJourneys.length > 0 && !hasDirectRoute && (
         <div className="multi-leg-journeys-panel" style={{margin: '1rem 0', padding: '1rem', background: '#fff7ed', border: '1px solid #f97316', borderRadius: '0.5rem'}}>
           <h3 style={{color: '#f97316', marginBottom: '0.5rem'}}>🚌 Multi-Leg Journey Options</h3>
           <ol style={{paddingLeft: '1.5rem'}}>
@@ -471,9 +480,9 @@ const LeafletMap = (props) => {
       <div className="leaflet-map" style={{ height: '100%', width: '100%', minHeight: '500px' }}>
         <MapContainer 
           center={center} 
-          zoom={10}
+          zoom={mapZoom}
           minZoom={8}
-          maxZoom={18}
+          maxZoom={16}
           maxBounds={bacolodbounds}
           maxBoundsViscosity={1.0}
           scrollWheelZoom={true}
@@ -528,7 +537,7 @@ const LeafletMap = (props) => {
           </LayersControl>
 
           {/* Render route polylines for routes with coordinates */}
-          {routes && routes.map(route => {
+          {polylineRoutes && polylineRoutes.map(route => {
             try {
               // NEW: Validate majorStops have proper coordinates
               if (route.majorStops && Array.isArray(route.majorStops)) {
@@ -760,7 +769,16 @@ const LeafletMap = (props) => {
           {((highlightedStops.length > 0) || (selectedRoute && highlightedStops.length === 0)) && selectedRoute && selectedRoute.majorStops && (
             selectedRoute.majorStops.map((stop, index) => {
               const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-              
+
+              // Skip rendering if this stop matches the selected destination (to avoid duplicate pin)
+              if (
+                selectedDestination &&
+                ((Array.isArray(selectedDestination) && pos && Math.abs(selectedDestination[0] - pos[0]) < 1e-5 && Math.abs(selectedDestination[1] - pos[1]) < 1e-5) ||
+                (stopNameMatches(stopName, destination)))
+              ) {
+                return null;
+              }
+
               // First, try to get coordinates from the stop object itself
               let pos = null;
               if (typeof stop === 'object' && stop?.lat !== undefined && stop?.lng !== undefined) {
@@ -778,14 +796,14 @@ const LeafletMap = (props) => {
               // Only render if we have coordinates from either source
               if (pos) {
                 // Apply search filters to major stops
-                
+
                 // System search: only show the exact destination
                 if (searchType === 'system' && destination) {
                   if (!stopNameMatches(stopName, destination)) {
                     return null; // Skip this stop
                   }
                 }
-                
+
                 // Geocoded search: only show stops within 5km of the geocoded location
                 if (searchType === 'geocoded' && selectedDestination) {
                   const distance = calculateDistance(
@@ -794,12 +812,12 @@ const LeafletMap = (props) => {
                     pos[0],
                     pos[1]
                   );
-                  
+
                   if (distance > 5) {
                     return null; // Skip stops beyond 5km
                   }
                 }
-                
+
                 const isDestination = stopNameMatches(stopName, destination);
                 return (
                   <Marker 
