@@ -12,6 +12,7 @@ const DestinationSelector = ({ routes, landmarks, onDestinationSelect, selectedD
   const [isOpen, setIsOpen] = useState(false);
   const [filteredDestinations, setFilteredDestinations] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDesc, setSelectedDesc] = useState('');
 
   // Extract all unique destinations from routes and landmarks
   const destinations = useMemo(() => {
@@ -66,6 +67,7 @@ const DestinationSelector = ({ routes, landmarks, onDestinationSelect, selectedD
   const handleSelect = (destination) => {
     setSearchTerm(destination.name);
     setIsOpen(false);
+    setSelectedDesc(destination.type === 'stop' ? destination.routeName : destination.category);
     onDestinationSelect(destination);
     // No auto-trigger - just update the selection
     // User will click "Find Stops" button to search
@@ -84,11 +86,27 @@ const DestinationSelector = ({ routes, landmarks, onDestinationSelect, selectedD
           onChange={(e) => {
             setSearchTerm(e.target.value);
             setIsOpen(true);
+            setSelectedDesc(''); // Hide previous description when searching
+            onDestinationSelect(null); // Hide previous selected destination marker/info
           }}
           onFocus={() => setIsOpen(true)}
           onBlur={() => setTimeout(() => setIsOpen(false), 200)}
           className="destination-input"
         />
+        {searchTerm && (
+          <button
+            type="button"
+            className="clear-input-btn"
+            aria-label="Clear destination input"
+            onClick={() => {
+              setSearchTerm('');
+              setSelectedDesc('');
+              onDestinationSelect(null);
+            }}
+          >
+            ×
+          </button>
+        )}
         {isOpen && filteredDestinations.length > 0 && (
           <div className="destination-dropdown">
             {filteredDestinations.map((destination) => (

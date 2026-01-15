@@ -197,11 +197,13 @@ body {
   grid-template-columns: 1fr;
   gap: 1rem;
   margin-bottom: 1.5rem;
+  align-items: center;
 }
 
 @media (min-width: 768px) {
   .form-grid {
     grid-template-columns: 1fr 1fr;
+    align-items: center;
   }
 }
 
@@ -392,7 +394,7 @@ body {
   height: 100%;
   background: #f3f4f6;
   border-radius: 0.5rem;
-  overflow: hidden;
+  /* overflow: visible;  allow dropdowns to escape map container */
 }
 
 .map-canvas {

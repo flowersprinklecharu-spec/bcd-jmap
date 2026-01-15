@@ -1,7 +1,29 @@
+/* Clear (x) button for input */
+.clear-input-btn {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  z-index: 1300;
+  line-height: 1;
+}
+
+.clear-input-btn:hover {
+  color: #333;
+}
+/* Ensure the selector is above the map and not under the navbar */
 .location-selector {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  position: relative;
+  z-index: 1100;
 }
 
 .location-label {
@@ -15,6 +37,7 @@
 
 .location-input-wrapper {
   position: relative;
+  min-height: 44px;
 }
 
 .location-input {
@@ -25,6 +48,9 @@
   font-size: 14px;
   font-family: inherit;
   transition: border-color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box;
+    background: #fff;
+    min-height: 44px;
 }
 
 .location-input:focus {
@@ -33,6 +59,7 @@
   box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
 }
 
+/* Dropdown above map and content */
 .location-dropdown {
   position: absolute;
   top: 100%;
@@ -44,7 +71,7 @@
   border-radius: 0 0 6px 6px;
   max-height: 300px;
   overflow-y: auto;
-  z-index: 100;
+    z-index: 3000;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 

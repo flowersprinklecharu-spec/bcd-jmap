@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import './location-selector.css';
 
 // Location pin icon
@@ -11,15 +11,15 @@ const LocationIcon = () => (
 const LocationSelector = ({ landmarks, onLocationSelect, selectedLocation }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [filteredLocations, setFilteredLocations] = useState([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(selectedLocation ? selectedLocation.name : '');
 
-  // Get unique locations from landmarks
-  const locations = landmarks.map(lm => ({
+  // Get unique locations from landmarks (memoized)
+  const locations = useMemo(() => landmarks.map(lm => ({
     id: lm.id,
     name: lm.name,
     category: lm.category,
     coordinates: lm.coordinates
-  }));
+  })), [landmarks]);
 
   useEffect(() => {
     if (searchTerm.trim() === '') {
@@ -31,6 +31,35 @@ const LocationSelector = ({ landmarks, onLocationSelect, selectedLocation }) => 
       setFilteredLocations(filtered.slice(0, 8));
     }
   }, [searchTerm, locations]);
+
+  // Only update searchTerm if selectedLocation changes and is different from the current searchTerm (prevents infinite loop)
+  // Deep equality check for selectedLocation
+  // Robust deep equality check using JSON.stringify
+  function isSameLocation(a, b) {
+    return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  useEffect(() => {
+    // Debug log to see what triggers the effect
+    console.log('[LocationSelector] useEffect triggered:', {
+      selectedLocation,
+      searchTerm,
+      selectedLocationString: JSON.stringify(selectedLocation),
+      searchTermString: JSON.stringify({ name: searchTerm })
+    });
+    // TEMP: Disable setSearchTerm to break the loop and observe logs
+    // if (
+    //   selectedLocation &&
+    //   typeof selectedLocation.name === 'string' &&
+    //   selectedLocation.name.length > 0 &&
+    //   !isSameLocation(selectedLocation, { name: searchTerm })
+    // ) {
+    //   console.log('[LocationSelector] setSearchTerm called:', selectedLocation.name);
+    //   setSearchTerm(selectedLocation.name);
+    // }
+    // Do NOT update searchTerm if selectedLocation is null or matches current searchTerm
+    // This prevents an infinite update loop
+  }, [selectedLocation]);
 
   const handleSelect = (location) => {
     setSearchTerm(location.name);
@@ -56,6 +85,19 @@ const LocationSelector = ({ landmarks, onLocationSelect, selectedLocation }) => 
           onBlur={() => setTimeout(() => setIsOpen(false), 200)}
           className="location-input"
         />
+        {searchTerm && (
+          <button
+            type="button"
+            className="clear-input-btn"
+            aria-label="Clear location input"
+            onClick={() => {
+              setSearchTerm('');
+              onLocationSelect(null);
+            }}
+          >
+            ×
+          </button>
+        )}
         {isOpen && filteredLocations.length > 0 && (
           <div className="location-dropdown">
             {filteredLocations.map((location) => (

@@ -3,6 +3,8 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, LayersControl, ZoomCo
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { boundsToLeafletFormat, addPaddingToBounds } from '../utils/boundsCalculator';
+import { findMultiLegJourneys, rankMultiLegJourneys } from '../utils/routeMatchingService';
+import './leaflet-map-multileg.css';
 
 // Helper function to calculate distance between two coordinates (Haversine formula)
 const calculateDistance = (lat1, lng1, lat2, lng2) => {
@@ -80,6 +82,14 @@ const createLandmarkIcon = (color = '#2196F3') => {
     popupAnchor: [0, -65],
   });
 };
+
+const TRANSFER_ICON = L.divIcon({
+  html: `<svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#fff" stroke="#6366f1" stroke-width="3"/><text x="16" y="22" text-anchor="middle" font-size="18" fill="#6366f1" font-family="Arial" font-weight="bold">T</text></svg>`,
+  className: 'transfer-marker',
+  iconSize: [32, 32],
+  iconAnchor: [16, 32],
+  popupAnchor: [0, -32],
+});
 
 // Component to handle map click for location selection
 const LocationSelectionHandler = ({ editingStopLocation, onLocationSelect }) => {
@@ -336,7 +346,95 @@ const DestinationZoomHandler = ({ searchType = '', selectedDestination }) => {
   return null;
 };
 
-const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], onRouteClick, highlightedStops = [], destination = '', suggestedRoutes = [], editingStopLocation, onLocationSelect, selectedDestination, showLandmarks = true, zoomBounds = null, searchType = '', searchPhase = 'idle', showOnlyDestination = false, showOnlySuggestedRoutes = false, onZoomChange }) => {
+const renderDirectionsPanel = (multiLegJourney, userLocation, selectedDestination) => {
+  if (!multiLegJourney || !userLocation || !selectedDestination) return null;
+  const { legs } = multiLegJourney;
+  return (
+    <div style={{
+      background: '#fff',
+      borderRadius: '8px',
+      boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+      padding: '16px',
+      margin: '16px auto',
+      maxWidth: 480,
+      zIndex: 1000
+    }}>
+      <h3 style={{marginTop:0, color:'#6366f1'}}>Step-by-Step Directions</h3>
+      <ol style={{paddingLeft: '1.2em'}}>
+        {legs.map((leg, idx) => {
+          const isLast = idx === legs.length - 1;
+          const start = idx === 0 ? 'Your location' : (legs[idx-1].alighting?.name || 'Transfer Point');
+          const end = isLast ? 'Your destination' : (leg.alighting?.name || 'Transfer Point');
+          return (
+            <li key={idx} style={{marginBottom: '12px'}}>
+              <div>
+                <span style={{fontWeight:'bold', color:'#6366f1'}}>Ride {leg.route.name}</span><br/>
+                Board at <b>{start}</b> and alight at <b>{end}</b>.
+                {!isLast && (
+                  <div style={{marginTop:'4px', color:'#f59e42'}}>
+                    Transfer to next jeepney at <b>{end}</b>.
+                  </div>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+};
+
+const LeafletMap = (props) => {
+  const {
+    routes = [],
+    selectedRoute,
+    userLocation,
+    landmarks = [],
+    onRouteClick,
+    highlightedStops = [],
+    destination = '',
+    suggestedRoutes = [],
+    editingStopLocation,
+    onLocationSelect,
+    selectedDestination,
+    destinationDescription = '',
+    showLandmarks = true,
+    zoomBounds = null,
+    searchType = '',
+    searchPhase = 'idle',
+    showOnlyDestination = false,
+    showOnlySuggestedRoutes = false,
+    onZoomChange
+  } = props;
+
+  // Multi-leg journey state
+  let multiLegJourney = null;
+  let transferMarkers = [];
+  let allMultiLegJourneys = [];
+  if (userLocation && selectedDestination && Array.isArray(selectedDestination) && routes.length > 0) {
+    const journeys = rankMultiLegJourneys(
+      findMultiLegJourneys(
+        { lat: userLocation.lat, lng: userLocation.lng },
+        { lat: selectedDestination[0], lng: selectedDestination[1] },
+        routes,
+        3 // max 3 legs for consistency with Home.js
+      )
+    );
+    allMultiLegJourneys = journeys;
+    if (journeys.length > 0) {
+      multiLegJourney = journeys[0];
+      transferMarkers = multiLegJourney.legs
+        .filter((leg, idx) => idx > 0 && leg.alighting && leg.alighting.name)
+        .map((leg, idx) => ({
+          pos: [leg.alighting.lat, leg.alighting.lng],
+          name: leg.alighting.name
+        }));
+    }
+    console.log('[LeafletMap] Multi-leg journeys found:', journeys.length, journeys);
+  } else {
+    console.log('[LeafletMap] Multi-leg journey NOT computed. userLocation:', userLocation, 'selectedDestination:', selectedDestination, 'routes:', routes.length);
+  }
+
   // Expanded bounds to include Bacolod, Binalbagan, and Isabela municipalities (wider scope)
   const bacolodbounds = [
     [10.20, 122.80],     // Southwest corner (covers Binalbagan and southern area)
@@ -347,356 +445,427 @@ const LeafletMap = ({ routes = [], selectedRoute, userLocation, landmarks = [], 
   const center = userLocation ? [userLocation.lat, userLocation.lng] : bacolodboundsCenter;
 
   return (
-    <div className="leaflet-map" style={{ height: '100%', width: '100%', minHeight: '500px' }}>
-      <MapContainer 
-        center={center} 
-        zoom={10}
-        minZoom={8}
-        maxZoom={18}
-        maxBounds={bacolodbounds}
-        maxBoundsViscosity={1.0}
-        scrollWheelZoom={true}
-        wheelPxPerZoomLevel={60}
-        style={{ height: '100%', width: '100%' }} 
-        zoomControl={false}
-      >
-        <ZoomControl position="topright" />
-        <ZoomLevelTracker onZoomChange={onZoomChange} />
-        {editingStopLocation && <LocationSelectionHandler editingStopLocation={editingStopLocation} onLocationSelect={onLocationSelect} />}
-        {zoomBounds && <BoundsHandler bounds={zoomBounds} />}
-        <DestinationZoomHandler 
-          searchType={searchType}
-          selectedDestination={selectedDestination}
-        />
-        <MapZoomHandler 
-          destination={destination}
-          landmarks={landmarks}
-          selectedRoute={selectedRoute}
-          routes={routes}
-        />
-        <DestinationMarkerHandler 
-          selectedDestination={selectedDestination}
-          userLocation={userLocation}
-        />
-        <LayersControl position="topright">
-          <LayersControl.BaseLayer checked name="OpenStreetMap">
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-          </LayersControl.BaseLayer>
+    <>
+      {/* Always show multi-leg journey panel if any journeys exist */}
+      {allMultiLegJourneys && allMultiLegJourneys.length > 0 && (
+        <div className="multi-leg-journeys-panel" style={{margin: '1rem 0', padding: '1rem', background: '#fff7ed', border: '1px solid #f97316', borderRadius: '0.5rem'}}>
+          <h3 style={{color: '#f97316', marginBottom: '0.5rem'}}>🚌 Multi-Leg Journey Options</h3>
+          <ol style={{paddingLeft: '1.5rem'}}>
+            {allMultiLegJourneys.map((journey, idx) => (
+              <li key={idx} style={{marginBottom: '0.5rem'}}>
+                {journey.legs.map((leg, i) => (
+                  <span key={i}>
+                    <b>{leg.route.number}</b>{i < journey.legs.length - 1 ? ' → ' : ''}
+                  </span>
+                ))}
+                <span style={{color: '#666', fontSize: '0.9em'}}> (Transfers: {journey.transfers}, Distance: {journey.totalDistance.toFixed(2)}km)</span>
+                {journey.walkToDestination && (
+                  <span style={{color: '#f59e42', marginLeft: '0.5em'}}>+ Walk {journey.walkToDestination.distanceKm.toFixed(2)}km to destination</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {renderDirectionsPanel(multiLegJourney, userLocation, selectedDestination)}
+      <div className="leaflet-map" style={{ height: '100%', width: '100%', minHeight: '500px' }}>
+        <MapContainer 
+          center={center} 
+          zoom={10}
+          minZoom={8}
+          maxZoom={18}
+          maxBounds={bacolodbounds}
+          maxBoundsViscosity={1.0}
+          scrollWheelZoom={true}
+          wheelPxPerZoomLevel={60}
+          style={{ height: '100%', width: '100%' }} 
+          zoomControl={false}
+        >
+          <ZoomControl position="topright" />
+          <ZoomLevelTracker onZoomChange={onZoomChange} />
+          {editingStopLocation && <LocationSelectionHandler editingStopLocation={editingStopLocation} onLocationSelect={onLocationSelect} />}
+          {zoomBounds && <BoundsHandler bounds={zoomBounds} />}
+          <DestinationZoomHandler 
+            searchType={searchType}
+            selectedDestination={selectedDestination}
+          />
+          <MapZoomHandler 
+            destination={destination}
+            landmarks={landmarks}
+            selectedRoute={selectedRoute}
+            routes={routes}
+          />
+          {/* Custom destination marker with description popup */}
+          {selectedDestination && (
+            <Marker position={selectedDestination} icon={createLandmarkIcon('#ef4444')}>
+              <Popup>
+                <div style={{ fontWeight: 'bold', color: '#ef4444', marginBottom: '4px' }}>
+                  {destination}
+                </div>
+                {destinationDescription && (
+                  <div style={{ color: '#888', fontSize: '13px', marginBottom: '4px' }}>
+                    {destinationDescription}
+                  </div>
+                )}
+                <div style={{ color: '#222', fontSize: '12px' }}>Pinned Destination</div>
+              </Popup>
+            </Marker>
+          )}
+          <LayersControl position="topright">
+            <LayersControl.BaseLayer checked name="OpenStreetMap">
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+            </LayersControl.BaseLayer>
 
-          <LayersControl.BaseLayer name="CartoDB Voyager">
-            <TileLayer
-              attribution='&copy; <a href="https://carto.com/attributions">CartoDB</a>'
-              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-            />
-          </LayersControl.BaseLayer>
-        </LayersControl>
+            <LayersControl.BaseLayer name="CartoDB Voyager">
+              <TileLayer
+                attribution='&copy; <a href="https://carto.com/attributions">CartoDB</a>'
+                url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+              />
+            </LayersControl.BaseLayer>
+          </LayersControl>
 
-        {/* Render route polylines for routes with coordinates */}
-        {routes && routes.map(route => {
-          try {
-            // NEW: Validate majorStops have proper coordinates
-            if (route.majorStops && Array.isArray(route.majorStops)) {
-              route.majorStops.forEach((stop, idx) => {
-                if (typeof stop === 'object' && stop !== null) {
-                  if (typeof stop.lat !== 'number' || typeof stop.lng !== 'number') {
-                    console.warn(`⚠️ Route ${route.number} - Stop ${idx} (${stop.name}) has invalid coordinates:`, {
-                      hasLat: typeof stop.lat,
-                      hasLng: typeof stop.lng,
-                      lat: stop.lat,
-                      lng: stop.lng,
-                      fullStop: stop
-                    });
+          {/* Render route polylines for routes with coordinates */}
+          {routes && routes.map(route => {
+            try {
+              // NEW: Validate majorStops have proper coordinates
+              if (route.majorStops && Array.isArray(route.majorStops)) {
+                route.majorStops.forEach((stop, idx) => {
+                  if (typeof stop === 'object' && stop !== null) {
+                    if (typeof stop.lat !== 'number' || typeof stop.lng !== 'number') {
+                      console.warn(`⚠️ Route ${route.number} - Stop ${idx} (${stop.name}) has invalid coordinates:`, {
+                        hasLat: typeof stop.lat,
+                        hasLng: typeof stop.lng,
+                        lat: stop.lat,
+                        lng: stop.lng,
+                        fullStop: stop
+                      });
+                    }
                   }
-                }
-              });
-            }
+                });
+              }
 
-            if (!route.coordinates || !Array.isArray(route.coordinates) || route.coordinates.length < 2) {
-              return null;
-            }
-
-            // NEW: Filter routes based on search phase
-            if (showOnlySuggestedRoutes && suggestedRoutes.length > 0) {
-              // Only show routes that are in the suggested list OR the currently selected route
-              const isSuggested = suggestedRoutes.some(suggested => suggested.id === route.id);
-              const isSelected = selectedRoute && selectedRoute.id === route.id;
-              if (!isSuggested && !isSelected) {
+              if (!route.coordinates || !Array.isArray(route.coordinates) || route.coordinates.length < 2) {
                 return null;
               }
-            }
 
-            // Normalize coordinates: convert {lat, lng} objects to [lat, lng] arrays
-            const normalizedCoords = route.coordinates.map(coord => {
-              // Already in array format [lat, lng]
-              if (Array.isArray(coord) && coord.length === 2) {
-                return coord;
+              // NEW: Filter routes based on search phase
+              if (showOnlySuggestedRoutes && suggestedRoutes.length > 0) {
+                // Only show routes that are in the suggested list OR the currently selected route
+                const isSuggested = suggestedRoutes.some(suggested => suggested.id === route.id);
+                const isSelected = selectedRoute && selectedRoute.id === route.id;
+                if (!isSuggested && !isSelected) {
+                  return null;
+                }
               }
-              // Object format {lat, lng}
-              if (coord && typeof coord.lat === 'number' && typeof coord.lng === 'number') {
-                return [coord.lat, coord.lng];
-              }
-              // Latitude/longitude property names
-              if (coord && typeof coord.latitude === 'number' && typeof coord.longitude === 'number') {
-                return [coord.latitude, coord.longitude];
-              }
-              // Log problematic coordinate
-              console.warn(`⚠️ Route ${route.number}: Invalid coordinate format:`, coord);
-              return null;
-            }).filter(coord => coord !== null);
 
-            // Validate that all coordinates are valid [lat, lng] pairs
-            const validCoords = normalizedCoords.filter(coord => {
-              // Must be an array with 2 elements
-              if (!Array.isArray(coord) || coord.length !== 2) {
-                return false;
-              }
-              // Must have valid lat/lng numbers
-              if (typeof coord[0] !== 'number' || typeof coord[1] !== 'number') {
-                return false;
-              }
-              // Check for NaN values
-              if (isNaN(coord[0]) || isNaN(coord[1])) {
-                return false;
-              }
-              // Check valid lat/lng ranges
-              if (coord[0] < -90 || coord[0] > 90) {
-                return false;
-              }
-              if (coord[1] < -180 || coord[1] > 180) {
-                return false;
-              }
-              return true;
-            });
+              // Normalize coordinates: convert {lat, lng} objects to [lat, lng] arrays
+              const normalizedCoords = route.coordinates.map(coord => {
+                // Already in array format [lat, lng]
+                if (Array.isArray(coord) && coord.length === 2) {
+                  return coord;
+                }
+                // Object format {lat, lng}
+                if (coord && typeof coord.lat === 'number' && typeof coord.lng === 'number') {
+                  return [coord.lat, coord.lng];
+                }
+                // Latitude/longitude property names
+                if (coord && typeof coord.latitude === 'number' && typeof coord.longitude === 'number') {
+                  return [coord.latitude, coord.longitude];
+                }
+                // Log problematic coordinate
+                console.warn(`⚠️ Route ${route.number}: Invalid coordinate format:`, coord);
+                return null;
+              }).filter(coord => coord !== null);
 
-            if (validCoords.length < 2) {
-              console.warn(`⚠️ Route ${route.id} (${route.number}): has only ${validCoords.length} valid coordinates after normalization (had ${normalizedCoords.length} normalized), skipping render`);
-              console.warn(`   Original coordinates:`, route.coordinates);
-              console.warn(`   Normalized coordinates:`, normalizedCoords);
-              console.warn(`   Valid coordinates:`, validCoords);
-              return null;
-            }
-
-            // Check if this route is selected
-            const isSelected = selectedRoute && selectedRoute.id === route.id;
-            const opacity = isSelected ? 1.0 : 0.6;
-            const weight = isSelected ? 6 : 4;
-
-            return (
-              <Polyline
-                key={route.id}
-                positions={validCoords}
-                className="route-transition"
-                pathOptions={{
-                  color: route.color || '#3b82f6',
-                  weight: weight,
-                  opacity: opacity,
-                  lineJoin: 'round',
-                  lineCap: 'round'
-                }}
-              >
-              <Popup>
-                <div style={{ fontWeight: 'bold', color: route.color }}>
-                  Route {route.number}: {route.name}
-                </div>
-                <div style={{ fontSize: '12px', marginTop: '4px' }}>
-                  {route.description}
-                </div>
-              </Popup>
-            </Polyline>
-            );
-          } catch (err) {
-            console.error(`❌ Error rendering route ${route.id}:`, err);
-            return null;
-          }
-        })}
-
-        {showLandmarks && landmarks.map(landmark => {
-          if (!landmark || !landmark.id) return null;
-
-          let pos = getCoordinates(landmark.coordinates);
-          
-          if (!pos) return null;
-          
-          // NEW: Phase-aware landmark filtering
-          if (showOnlyDestination && destination) {
-            // During search phase, only show the searched destination
-            if (landmark.name.toLowerCase() !== destination.toLowerCase()) {
-              return null;
-            }
-          } else if (showOnlySuggestedRoutes && suggestedRoutes.length > 0) {
-            // During suggestions/route view, show stops of ANY suggested route (or selected route)
-            let isInAnyRoute = false;
-            
-            // Check if landmark is in the selected route
-            if (selectedRoute && selectedRoute.majorStops) {
-              isInAnyRoute = selectedRoute.majorStops.some(stop => {
-                const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-                return stopNameMatches(stopName, landmark.name);
+              // Validate that all coordinates are valid [lat, lng] pairs
+              const validCoords = normalizedCoords.filter(coord => {
+                // Must be an array with 2 elements
+                if (!Array.isArray(coord) || coord.length !== 2) {
+                  return false;
+                }
+                // Must have valid lat/lng numbers
+                if (typeof coord[0] !== 'number' || typeof coord[1] !== 'number') {
+                  return false;
+                }
+                // Check for NaN values
+                if (isNaN(coord[0]) || isNaN(coord[1])) {
+                  return false;
+                }
+                // Check valid lat/lng ranges
+                if (coord[0] < -90 || coord[0] > 90) {
+                  return false;
+                }
+                if (coord[1] < -180 || coord[1] > 180) {
+                  return false;
+                }
+                return true;
               });
+
+              if (validCoords.length < 2) {
+                console.warn(`⚠️ Route ${route.id} (${route.number}): has only ${validCoords.length} valid coordinates after normalization (had ${normalizedCoords.length} normalized), skipping render`);
+                console.warn(`   Original coordinates:`, route.coordinates);
+                console.warn(`   Normalized coordinates:`, normalizedCoords);
+                console.warn(`   Valid coordinates:`, validCoords);
+                return null;
+              }
+
+              // Check if this route is selected
+              const isSelected = selectedRoute && selectedRoute.id === route.id;
+              const opacity = isSelected ? 1.0 : 0.6;
+              const weight = isSelected ? 6 : 4;
+
+              return (
+                <Polyline
+                  key={route.id}
+                  positions={validCoords}
+                  className="route-transition"
+                  pathOptions={{
+                    color: route.color || '#3b82f6',
+                    weight: weight,
+                    opacity: opacity,
+                    lineJoin: 'round',
+                    lineCap: 'round'
+                  }}
+                >
+                <Popup>
+                  <div style={{ fontWeight: 'bold', color: route.color }}>
+                    Route {route.number}: {route.name}
+                  </div>
+                  <div style={{ fontSize: '12px', marginTop: '4px' }}>
+                    {route.description}
+                  </div>
+                </Popup>
+              </Polyline>
+              );
+            } catch (err) {
+              console.error(`❌ Error rendering route ${route.id}:`, err);
+              return null;
             }
+          })}
+
+          {showLandmarks && landmarks.map(landmark => {
+            if (!landmark || !landmark.id) return null;
+
+            let pos = getCoordinates(landmark.coordinates);
             
-            // If not in selected route, check all suggested routes
-            if (!isInAnyRoute) {
-              isInAnyRoute = suggestedRoutes.some(route => {
-                if (!route.majorStops) return false;
-                return route.majorStops.some(stop => {
+            if (!pos) return null;
+            
+            // NEW: Phase-aware landmark filtering
+            if (showOnlyDestination && destination) {
+              // During search phase, only show the searched destination
+              if (landmark.name.toLowerCase() !== destination.toLowerCase()) {
+                return null;
+              }
+            } else if (showOnlySuggestedRoutes && suggestedRoutes.length > 0) {
+              // During suggestions/route view, show stops of ANY suggested route (or selected route)
+              let isInAnyRoute = false;
+              
+              // Check if landmark is in the selected route
+              if (selectedRoute && selectedRoute.majorStops) {
+                isInAnyRoute = selectedRoute.majorStops.some(stop => {
                   const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
                   return stopNameMatches(stopName, landmark.name);
                 });
-              });
+              }
+              
+              // If not in selected route, check all suggested routes
+              if (!isInAnyRoute) {
+                isInAnyRoute = suggestedRoutes.some(route => {
+                  if (!route.majorStops) return false;
+                  return route.majorStops.some(stop => {
+                    const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+                    return stopNameMatches(stopName, landmark.name);
+                  });
+                });
+              }
+              
+              if (!isInAnyRoute) {
+                return null;
+              }
             }
             
-            if (!isInAnyRoute) {
-              return null;
-            }
-          }
-          
-          // Handle system search: only show the exact destination landmark
-          if (searchType === 'system' && destination) {
-            if (landmark.name.toLowerCase() !== destination.toLowerCase()) {
-              return null; // Only show the searched destination
-            }
-          }
-          
-          // Handle geocoded search: only show major stops within 5km of the geocoded location
-          if (searchType === 'geocoded' && selectedRoute && selectedRoute.majorStops && selectedDestination) {
-            // Check if landmark is a major stop of the selected route
-            const isInSelectedRoute = selectedRoute.majorStops.some(stop => {
-              const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-              return stopNameMatches(stopName, landmark.name);
-            });
-            
-            if (!isInSelectedRoute) {
-              return null; // Not a major stop of selected route
+            // Handle system search: only show the exact destination landmark
+            if (searchType === 'system' && destination) {
+              if (landmark.name.toLowerCase() !== destination.toLowerCase()) {
+                return null; // Only show the searched destination
+              }
             }
             
-            // Check if landmark is within 5km of the geocoded destination
-            const distance = calculateDistance(
-              selectedDestination[0],
-              selectedDestination[1],
-              pos[0],
-              pos[1]
-            );
-            
-            if (distance > 5) {
-              return null; // Beyond 5km range
-            }
-          }
-          
-          // Check if we're in focused mode (no search type set, just browsing)
-          const isFocusedMode = selectedRoute && !searchType && highlightedStops.length === 0;
-          
-          // In focused mode, only show landmarks that are major stops of the selected route
-          if (isFocusedMode && (!selectedRoute.majorStops || 
-              !selectedRoute.majorStops.some(stop => {
+            // Handle geocoded search: only show major stops within 5km of the geocoded location
+            if (searchType === 'geocoded' && selectedRoute && selectedRoute.majorStops && selectedDestination) {
+              // Check if landmark is a major stop of the selected route
+              const isInSelectedRoute = selectedRoute.majorStops.some(stop => {
                 const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
                 return stopNameMatches(stopName, landmark.name);
-              }))) {
-            return null;
-          }
-          
-          // Highlight landmark if it matches the searched destination
-          const isHighlighted = destination && landmark.name.toLowerCase() === destination.toLowerCase();
-          
-          return (
-            <Marker 
-              key={landmark.id} 
-              position={pos}
-              icon={isHighlighted ? createLandmarkIcon('#ef4444') : createLandmarkIcon('#f59e0b')}
-              className={isHighlighted && searchPhase === 'viewing-route' ? 'destination-marker-highlight' : ''}
-            >
-              <Tooltip direction="top" offset={[0, -10]} permanent={isHighlighted}>
-                {landmark.name}
-                {isHighlighted && searchPhase === 'viewing-route' && ' (Your Destination)'}
-              </Tooltip>
+              });
+              
+              if (!isInSelectedRoute) {
+                return null; // Not a major stop of selected route
+              }
+              
+              // Check if landmark is within 5km of the geocoded destination
+              const distance = calculateDistance(
+                selectedDestination[0],
+                selectedDestination[1],
+                pos[0],
+                pos[1]
+              );
+              
+              if (distance > 5) {
+                return null; // Beyond 5km range
+              }
+            }
+            
+            // Check if we're in focused mode (no search type set, just browsing)
+            const isFocusedMode = selectedRoute && !searchType && highlightedStops.length === 0;
+            
+            // In focused mode, only show landmarks that are major stops of the selected route
+            if (isFocusedMode && (!selectedRoute.majorStops || 
+                !selectedRoute.majorStops.some(stop => {
+                  const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+                  return stopNameMatches(stopName, landmark.name);
+                }))) {
+              return null;
+            }
+            
+            // Highlight landmark if it matches the searched destination
+            const isHighlighted = destination && landmark.name.toLowerCase() === destination.toLowerCase();
+            
+            return (
+              <Marker 
+                key={landmark.id} 
+                position={pos}
+                icon={isHighlighted ? createLandmarkIcon('#ef4444') : createLandmarkIcon('#f59e0b')}
+                className={isHighlighted && searchPhase === 'viewing-route' ? 'destination-marker-highlight' : ''}
+              >
+                <Tooltip direction="top" offset={[0, -10]} permanent={isHighlighted}>
+                  {landmark.name}
+                  {isHighlighted && searchPhase === 'viewing-route' && ' (Your Destination)'}
+                </Tooltip>
+                <Popup>
+                  <strong>{landmark.name}</strong>
+                  {isHighlighted && searchPhase === 'viewing-route' && <div style={{ color: '#ef4444', fontWeight: '600', marginTop: '4px' }}>✓ Your Destination</div>}
+                  <br />
+                  {landmark.category && `${landmark.category} · `}
+                  {landmark.address}
+                </Popup>
+              </Marker>
+            );
+          })}
+
+          {/* Render major stops for highlighted routes (search mode) and selected route (focused mode) */}
+          {((highlightedStops.length > 0) || (selectedRoute && highlightedStops.length === 0)) && selectedRoute && selectedRoute.majorStops && (
+            selectedRoute.majorStops.map((stop, index) => {
+              const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+              
+              // First, try to get coordinates from the stop object itself
+              let pos = null;
+              if (typeof stop === 'object' && stop?.lat !== undefined && stop?.lng !== undefined) {
+                pos = [stop.lat, stop.lng];
+              } else {
+                // Fall back to finding a matching landmark using fuzzy matching
+                const matchingLandmark = landmarks.find(lm => 
+                  stopNameMatches(stopName, lm.name)
+                );
+                if (matchingLandmark) {
+                  pos = getCoordinates(matchingLandmark.coordinates);
+                }
+              }
+
+              // Only render if we have coordinates from either source
+              if (pos) {
+                // Apply search filters to major stops
+                
+                // System search: only show the exact destination
+                if (searchType === 'system' && destination) {
+                  if (!stopNameMatches(stopName, destination)) {
+                    return null; // Skip this stop
+                  }
+                }
+                
+                // Geocoded search: only show stops within 5km of the geocoded location
+                if (searchType === 'geocoded' && selectedDestination) {
+                  const distance = calculateDistance(
+                    selectedDestination[0],
+                    selectedDestination[1],
+                    pos[0],
+                    pos[1]
+                  );
+                  
+                  if (distance > 5) {
+                    return null; // Skip stops beyond 5km
+                  }
+                }
+                
+                const isDestination = stopNameMatches(stopName, destination);
+                return (
+                  <Marker 
+                    key={`stop-${index}`}
+                    position={pos}
+                    icon={createStopIcon(isDestination ? '#ef4444' : selectedRoute.color)}
+                  >
+                    <Tooltip direction="top" offset={[0, -10]} permanent={isDestination}>
+                      {stopName}
+                    </Tooltip>
+                    <Popup>
+                      <strong>{stopName}</strong>
+                      <br />
+                      {isDestination && '⭐ Your Destination'}
+                    </Popup>
+                  </Marker>
+                );
+              }
+
+              return null;
+            })
+          )}
+
+          {userLocation && (
+            <Marker position={[userLocation.lat, userLocation.lng]}>
+              <Popup>Your location</Popup>
+            </Marker>
+          )}
+
+          {/* Render multi-leg journey if available */}
+          {multiLegJourney && multiLegJourney.legs.map((leg, idx) => {
+            // Draw each leg as a Polyline
+            const route = leg.route;
+            if (!route || !route.stops || route.stops.length < 2) return null;
+            const positions = route.stops.map(stop => [stop.lat, stop.lng]);
+            // Alternate colors for each leg
+            const colors = ['#6366f1', '#f59e42', '#10b981'];
+            return (
+              <Polyline
+                key={`multi-leg-${idx}`}
+                positions={positions}
+                pathOptions={{
+                  color: colors[idx % colors.length],
+                  weight: 7,
+                  opacity: 0.85,
+                  dashArray: idx > 0 ? '8 12' : undefined
+                }}
+              >
+                <Tooltip direction="center" offset={[0, 0]} permanent>
+                  {route.name}
+                </Tooltip>
+              </Polyline>
+            );
+          })}
+          {/* Render transfer markers */}
+          {transferMarkers.map((tm, idx) => (
+            <Marker key={`transfer-${idx}`} position={tm.pos} icon={TRANSFER_ICON}>
               <Popup>
-                <strong>{landmark.name}</strong>
-                {isHighlighted && searchPhase === 'viewing-route' && <div style={{ color: '#ef4444', fontWeight: '600', marginTop: '4px' }}>✓ Your Destination</div>}
-                <br />
-                {landmark.category && `${landmark.category} · `}
-                {landmark.address}
+                <strong>Transfer Point</strong><br />
+                {tm.name}
               </Popup>
             </Marker>
-          );
-        })}
-
-        {/* Render major stops for highlighted routes (search mode) and selected route (focused mode) */}
-        {((highlightedStops.length > 0) || (selectedRoute && highlightedStops.length === 0)) && selectedRoute && selectedRoute.majorStops && (
-          selectedRoute.majorStops.map((stop, index) => {
-            const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
-            
-            // First, try to get coordinates from the stop object itself
-            let pos = null;
-            if (typeof stop === 'object' && stop?.lat !== undefined && stop?.lng !== undefined) {
-              pos = [stop.lat, stop.lng];
-            } else {
-              // Fall back to finding a matching landmark using fuzzy matching
-              const matchingLandmark = landmarks.find(lm => 
-                stopNameMatches(stopName, lm.name)
-              );
-              if (matchingLandmark) {
-                pos = getCoordinates(matchingLandmark.coordinates);
-              }
-            }
-
-            // Only render if we have coordinates from either source
-            if (pos) {
-              // Apply search filters to major stops
-              
-              // System search: only show the exact destination
-              if (searchType === 'system' && destination) {
-                if (!stopNameMatches(stopName, destination)) {
-                  return null; // Skip this stop
-                }
-              }
-              
-              // Geocoded search: only show stops within 5km of the geocoded location
-              if (searchType === 'geocoded' && selectedDestination) {
-                const distance = calculateDistance(
-                  selectedDestination[0],
-                  selectedDestination[1],
-                  pos[0],
-                  pos[1]
-                );
-                
-                if (distance > 5) {
-                  return null; // Skip stops beyond 5km
-                }
-              }
-              
-              const isDestination = stopNameMatches(stopName, destination);
-              return (
-                <Marker 
-                  key={`stop-${index}`}
-                  position={pos}
-                  icon={createStopIcon(isDestination ? '#ef4444' : selectedRoute.color)}
-                >
-                  <Tooltip direction="top" offset={[0, -10]} permanent={isDestination}>
-                    {stopName}
-                  </Tooltip>
-                  <Popup>
-                    <strong>{stopName}</strong>
-                    <br />
-                    {isDestination && '⭐ Your Destination'}
-                  </Popup>
-                </Marker>
-              );
-            }
-
-            return null;
-          })
-        )}
-
-        {userLocation && (
-          <Marker position={[userLocation.lat, userLocation.lng]}>
-            <Popup>Your location</Popup>
-          </Marker>
-        )}
-      </MapContainer>
-    </div>
+          ))}
+        </MapContainer>
+      </div>
+    </>
   );
 };
 

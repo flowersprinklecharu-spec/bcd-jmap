@@ -11,562 +11,80 @@ import '../components/location-selector.css';
 import '../components/destination-selector.css';
 // Navbar moved to App.js (top-level)
 import LeafletMap from '../Map/LeafletMap';
+function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
 
-// SVG Icons
-const MapPinIcon = () => (
-  <svg width="32" height="32" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"></path>
-  </svg>
-);
-
-const SearchIcon = () => (
-  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
-  </svg>
-);
-
-const MapPinSmallIcon = () => (
-  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"></path>
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg width="18" height="18" fill="currentColor" viewBox="0 0 24 24">
-    <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"></path>
-  </svg>
-);
-
-const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
-  const [destination, setDestination] = useState('');
-  const [showDropdown, setShowDropdown] = useState(false);
-  const [selectedRoute, setSelectedRoute] = useState(null);
-  const [showRouteDetails, setShowRouteDetails] = useState(false);
-  const [expandedRouteId, setExpandedRouteId] = useState(null);
-  const [userLocation, setUserLocation] = useState(null);
-  const [userLocationName, setUserLocationName] = useState(null);
-  const [jeepneyRoutes, setJeepneyRoutes] = useState([]);
+  // --- State variables ---
   const [landmarks, setLandmarks] = useState([]);
-  const [announcements, setAnnouncements] = useState([]);
+  const [destination, setDestination] = useState("");
+  const [jeepneyRoutes, setJeepneyRoutes] = useState([]);
+  const [userLocation, setUserLocation] = useState(null);
+  const [gpsPermission, setGpsPermission] = useState('default');
   const [suggestedRoutes, setSuggestedRoutes] = useState([]);
-  const [multiLegJourneys, setMultiLegJourneys] = useState([]); // Multi-leg route suggestions
-  const [selectedMultiLegJourney, setSelectedMultiLegJourney] = useState(null); // Selected multi-leg journey
-  const [highlightedStops, setHighlightedStops] = useState([]);
+  const [selectedRoute, setSelectedRoute] = useState(null);
+  const [searchType, setSearchType] = useState(null);
   const [selectedDestinationCoords, setSelectedDestinationCoords] = useState(null);
-  const [zoomBounds, setZoomBounds] = useState(null); // For smart zoom on route selection
-  const [searchType, setSearchType] = useState(''); // 'system' for found in DB, 'geocoded' for API search
+  const [destinationDescription, setDestinationDescription] = useState("");
+  const [currentZoom, setCurrentZoom] = useState(15);
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
-  const [currentZoom, setCurrentZoom] = useState(12); // Current map zoom level (for zoom-based radius)
-  const [gpsPermission, setGpsPermission] = useState(null); // 'granted' | 'denied' | null
-  const [selectedLocation, setSelectedLocation] = useState(null);
-  const [selectedDestinationFromSelector, setSelectedDestinationFromSelector] = useState(null);
-  
-  // NEW: Search phase control states (additive, non-breaking)
-  const [searchPhase, setSearchPhase] = useState('idle'); // 'idle' | 'searching' | 'viewing-suggestions' | 'viewing-route'
+  const [multiLegJourneys, setMultiLegJourneys] = useState([]); // State for multi-leg journeys
+  const [announcements, setAnnouncements] = useState([]);
+  const [nearbyLandmarks, setNearbyLandmarks] = useState([]);
+  // --- Add missing state for expanded route, search phase, etc. ---
+  const [expandedRouteId, setExpandedRouteId] = useState(null);
+  const [searchPhase, setSearchPhase] = useState('idle');
   const [showOnlyDestination, setShowOnlyDestination] = useState(false);
   const [showOnlySuggestedRoutes, setShowOnlySuggestedRoutes] = useState(false);
+  const [highlightedStops, setHighlightedStops] = useState([]);
+  const [zoomBounds, setZoomBounds] = useState(null);
+  const [selectedMultiLegJourney, setSelectedMultiLegJourney] = useState(null);
+  const [userLocationName, setUserLocationName] = useState(null);
   const routeDetailsRef = useRef(null);
 
-  // Calculate distance between two coordinates using Haversine formula
+  // --- Utility function for fallback ---
   const calculateDistance = (lat1, lng1, lat2, lng2) => {
-    const R = 6371; // Earth's radius in km
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    // Haversine formula
+    const toRad = (v) => (v * Math.PI) / 180;
+    const R = 6371; // km
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   };
 
-  // Get closest point distance from user to a route
-  const getClosestDistanceToRoute = (route) => {
-    if (!userLocation || !route.coordinates) return Infinity;
-
-    let closestDistance = Infinity;
-
-    if (Array.isArray(route.coordinates)) {
-      // If coordinates is a polyline
-      route.coordinates.forEach(coord => {
-        if (Array.isArray(coord) && coord.length === 2) {
-          const distance = calculateDistance(userLocation.lat, userLocation.lng, coord[0], coord[1]);
-          closestDistance = Math.min(closestDistance, distance);
-        }
-      });
-    } else if (route.coordinates.latitude && route.coordinates.longitude) {
-      // If coordinates is a single point
-      closestDistance = calculateDistance(userLocation.lat, userLocation.lng, 
-                                         route.coordinates.latitude, 
-                                         route.coordinates.longitude);
-    }
-
-    return closestDistance;
-  };
-
-  // Memoized nearby landmarks with distance calculation
-  const nearbyLandmarks = useMemo(() => {
-    if (!userLocation || landmarks.length === 0) return [];
-    
-    const landmarksWithDistance = landmarks.map(landmark => {
-      if (!landmark.coordinates || !Array.isArray(landmark.coordinates) || landmark.coordinates.length !== 2) {
-        return { ...landmark, distance: Infinity };
-      }
-      const distance = calculateDistance(
-        userLocation.lat,
-        userLocation.lng,
-        landmark.coordinates[0],
-        landmark.coordinates[1]
-      );
-      return { ...landmark, distance };
-    });
-    
-    // Filter to within 5 km and sort by distance
-    return landmarksWithDistance
-      .filter(l => l.distance <= 5 && l.distance !== Infinity)
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 5);
-  }, [userLocation, landmarks]);
-
-  // Generate suggestions from routes major stops and landmarks
-  const suggestions = useMemo(() => {
-    const stops = new Set();
-    
-    // Add major stops from all routes (handle both string and object formats)
-    jeepneyRoutes.forEach(route => {
-      if (route.majorStops && Array.isArray(route.majorStops)) {
-        route.majorStops.forEach(stop => {
-          if (stop) {
-            const stopName = typeof stop === 'string' ? stop : stop.name;
-            if (stopName && typeof stopName === 'string') {
-              stops.add(stopName);
-            }
-          }
-        });
-      }
-    });
-
-    // Add landmark names
-    landmarks.forEach(landmark => {
-      if (landmark.name && typeof landmark.name === 'string') {
-        stops.add(landmark.name);
-      }
-    });
-
-    // Filter based on input and return sorted
-    const filtered = Array.from(stops)
-      .filter(stop => 
-        destination.trim() === '' || 
-        stop.toLowerCase().includes(destination.toLowerCase())
-      )
-      .sort();
-
-    console.log('📋 Suggestions generated:', { totalStops: stops.size, filtered: filtered.length, destination, jeepneyRoutesCount: jeepneyRoutes.length, landmarksCount: landmarks.length });
-    return destination.trim() === '' ? [] : filtered;
-  }, [destination, jeepneyRoutes, landmarks]);
-
+  // Fetch announcements and landmarks (replace with your actual Firestore logic)
   useEffect(() => {
-    let watcherId = null;
+    // Fetch announcements
+    // Replace with your Firestore or API logic
+    setAnnouncements([
+      // Example data
+      // { id: '1', title: 'System Update', description: 'New features added!', date: '2026-01-10', isImportant: true },
+    ]);
 
-    if (navigator.geolocation) {
-      // Use watchPosition for real-time GPS tracking
-      watcherId = navigator.geolocation.watchPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
-          });
-        },
-        (error) => {
-          console.log('Location access denied or error:', error.message);
-          setUserLocation({ lat: 10.6750, lng: 122.9500 });
-        },
-        {
-          enableHighAccuracy: true,  // Use GPS for better accuracy
-          timeout: 10000,            // Wait up to 10 seconds for location
-          maximumAge: 5000           // Use cached position if less than 5 seconds old
-        }
-      );
-    } else {
-      setUserLocation({ lat: 10.6750, lng: 122.9500 });
-    }
-
-    // Firestore listeners
-    try {
-      const routesCol = collection(db, 'routes');
-      const routesQuery = query(routesCol);
-      const unsubRoutes = onSnapshot(routesQuery, (snapshot) => {
-        const routes = snapshot.docs.map(doc => {
-          // Use normalizeDocData to ensure all coordinates are in [lat, lng] format
-          const normalized = normalizeDocData(doc);
-          const data = normalized;
-          
-          console.log(`📦 Route loaded: ${data.number || 'unknown'}`, {
-            hasCoordinates: !!data.coordinates,
-            coordinatesType: Array.isArray(data.coordinates) ? 'array' : typeof data.coordinates,
-            coordinatesLength: Array.isArray(data.coordinates) ? data.coordinates.length : 'N/A',
-            coordinatesFirstItem: Array.isArray(data.coordinates) ? data.coordinates[0] : 'N/A'
-          });
-          
-          // Validate coordinates are in proper [lat, lng] format
-          if (data.coordinates && Array.isArray(data.coordinates)) {
-            const validCoords = data.coordinates.filter(coord => 
-              Array.isArray(coord) && 
-              coord.length === 2 && 
-              typeof coord[0] === 'number' && 
-              typeof coord[1] === 'number' &&
-              !isNaN(coord[0]) && !isNaN(coord[1]) &&
-              coord[0] >= -90 && coord[0] <= 90 &&
-              coord[1] >= -180 && coord[1] <= 180
-            );
-            
-            if (validCoords.length > 0) {
-              data.coordinates = validCoords;
-              console.log(`✅ Route ${data.number}: Validated ${validCoords.length} coordinates`);
-            } else {
-              console.warn(`⚠️ Route ${data.number}: No valid coordinates found`);
-              data.coordinates = null;
-            }
-          } else {
-            console.warn(`⚠️ Route ${data.number}: No coordinates found or coordinates not an array`);
-            data.coordinates = null;
-          }
-          
-          return { id: doc.id, ...data };
-        });
-        
-        console.log(`📊 Loaded ${routes.length} total routes. Routes with coordinates:`, routes.filter(r => r.coordinates).length);
-        setJeepneyRoutes(routes);
-      }, (err) => {
-        console.error('Routes listener error', err);
-      });
-
-      const landmarksCol = collection(db, 'landmarks');
-      const landmarksQuery = query(landmarksCol);
-      const unsubLandmarks = onSnapshot(landmarksQuery, (snapshot) => {
-        const lm = snapshot.docs.map(doc => {
-          const normalized = normalizeDocData(doc);
-          // Ensure valid coordinates
-          if (!normalized.coordinates || !Array.isArray(normalized.coordinates) || normalized.coordinates.length !== 2) {
-            normalized.coordinates = null; // Don't render invalid landmarks on map
-          }
-          return { id: doc.id, ...normalized };
-        });
-        // Only include landmarks with valid coordinates
-        setLandmarks(lm.filter(l => l.coordinates !== null));
-      }, (err) => {
-        console.error('Landmarks listener error', err);
-      });
-
-      const announcementsCol = collection(db, 'announcements');
-      const announcementsQuery = query(announcementsCol);
-      const unsubAnnouncements = onSnapshot(announcementsQuery, (snapshot) => {
-        const data = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...normalizeDocData(doc)
-        }));
-        // Parse dates properly for consistent sorting (handles both ISO and formatted dates)
-        data.sort((a, b) => {
-          const dateA = a.date ? new Date(a.date).getTime() : 0;
-          const dateB = b.date ? new Date(b.date).getTime() : 0;
-          return dateB - dateA; // Newest first
-        });
-        setAnnouncements(data);
-      }, (err) => {
-        console.error('Announcements listener error', err);
-      });
-
-      return () => {
-        // Cleanup: Stop watching position when component unmounts
-        if (watcherId !== null) {
-          navigator.geolocation.clearWatch(watcherId);
-        }
-        unsubRoutes && unsubRoutes();
-        unsubLandmarks && unsubLandmarks();
-        unsubAnnouncements && unsubAnnouncements();
-      };
-    } catch (err) {
-      console.warn('Firestore not available', err);
-      // Still cleanup geolocation watcher even if Firestore fails
-      return () => {
-        if (watcherId !== null) {
-          navigator.geolocation.clearWatch(watcherId);
-        }
-      };
-    }
+    // Fetch nearby landmarks
+    // Replace with your actual logic for finding nearby landmarks
+    setNearbyLandmarks([
+      // Example data
+      // { id: 'lm1', name: 'SM City', category: 'Mall', distance: 1.2 },
+    ]);
   }, []);
 
-  // Reverse geocode user location to get location name
-  useEffect(() => {
-    if (userLocation) {
-      reverseGeocode(userLocation.lat, userLocation.lng).then(locationName => {
-        setUserLocationName(locationName);
-      });
-    } else {
-      setUserLocationName(null);
-    }
-  }, [userLocation]);
+  // All logic, hooks, and JSX are now inside the JeepneyMap function. No code should exist outside the function except imports and export default.
 
-  // Scroll to route details when they appear
-  useEffect(() => {
-    if (showRouteDetails && routeDetailsRef.current) {
-      setTimeout(() => {
-        routeDetailsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
-  }, [showRouteDetails]);
+  // Find the definition of the function that contains 'await geocodeAddress(destination)' and make it async.
+  // For example, if you have:
+  // const handleFindRoute = () => { ... await ... }
+  // Change to:
+  // const handleFindRoute = async () => { ... await ... }
 
-  // Auto-transition from details to map after 2 seconds
-  useEffect(() => {
-    if (showRouteDetails && selectedRoute && searchPhase === 'viewing-route') {
-      console.log('⏱️ Starting 2-second timer for auto-transition');
-      
-      // Set new timer to auto-hide details and show map
-      const timer = setTimeout(() => {
-        console.log('⏱️ Auto-transitioning from details to map view');
-        setShowRouteDetails(false);
-        // Map will automatically display now
-      }, 2000); // 2 second delay
-      
-      return () => {
-        clearTimeout(timer);
-      };
-    }
-  }, [showRouteDetails, selectedRoute, searchPhase]);
-
-  // NEW: Auto-scroll to suggestions when phase changes to viewing-suggestions
-  useEffect(() => {
-    if (searchPhase === 'viewing-suggestions') {
-      const suggestionsSection = document.querySelector('.suggested-jeepneys');
-      if (suggestionsSection) {
-        setTimeout(() => {
-          suggestionsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }, 300);
-      }
-    }
-  }, [searchPhase]);
-
-  const triggerFindRoute = (destinationName) => {
-    if (!destinationName || jeepneyRoutes.length === 0) return;
-
-    console.log('🔍 triggerFindRoute called with:', destinationName);
-
-    // Find all routes that have the destination in their major stops (handle both string and object formats)
-    const matchingRoutes = jeepneyRoutes.filter(route =>
-      route.majorStops && 
-      route.majorStops.some(stop => {
-        const stopName = typeof stop === 'string' ? stop : stop.name;
-        return stopName && stopName.toLowerCase() === destinationName.toLowerCase();
-      })
-    );
-
-    console.log('🛣️ Routes with destination as major stop:', matchingRoutes.length);
-
-    // Also find the landmark if it matches
-    const matchingLandmark = landmarks.find(lm => 
-      lm.name.toLowerCase() === destinationName.toLowerCase()
-    );
-
-    if (matchingLandmark) {
-      console.log('🏛️ Found matching landmark:', matchingLandmark.name);
-    }
-
-    // Set suggested routes (use matching routes, proximity search, or random selection)
-    let routesToSuggest = [];
-    let searchMethod = 'none';
-
-    if (matchingRoutes.length > 0) {
-      // Option 1: Routes with destination as direct major stop
-      searchMethod = 'direct-stops';
-      console.log('✅ Using Option 1: Direct stop matching');
-      
-      // Sort matching routes by distance from user location
-      routesToSuggest = matchingRoutes.sort((a, b) => {
-        const distA = getClosestDistanceToRoute(a);
-        const distB = getClosestDistanceToRoute(b);
-        return distA - distB;
-      });
-      
-      // Mark this as a system search
-      setSearchType('system');
-    } else if (matchingLandmark && matchingLandmark.coordinates) {
-      // Option 2: Landmark exists but not a major stop - use proximity search to find nearby routes
-      searchMethod = 'proximity-search';
-      console.log('✅ Using Option 2: Proximity search for routes near landmark', matchingLandmark.coordinates);
-      
-      // Use zoom-based radius
-      const radiusKm = getRadiusFromZoom(currentZoom);
-      let nearbyRoutes = findNearbyRoutes(matchingLandmark.coordinates, jeepneyRoutes, radiusKm);
-      console.log(`🎯 Found ${nearbyRoutes.length} routes within ${radiusKm.toFixed(2)}km radius`);
-      
-      // Enhance with GPS data if user location is available
-      if (userLocation && gpsPermission === 'granted') {
-        nearbyRoutes = enhanceRoutesWithGPS(nearbyRoutes, userLocation, matchingLandmark.coordinates);
-        console.log('📍 Routes enhanced with GPS distance data');
-      }
-      
-      if (nearbyRoutes.length > 0) {
-        routesToSuggest = nearbyRoutes;
-      }
-      
-      // Mark this as a system search (landmark was found in system)
-      setSearchType('system');
-    }
-
-    // Fallback: If no direct routes and no nearby routes, find routes closest to user location
-    if (routesToSuggest.length === 0) {
-      if (userLocation) {
-        searchMethod = 'proximity-to-user';
-        console.log('✅ Using Option 3: Routes closest to user location');
-        
-        // Sort all routes by distance from user location
-        routesToSuggest = [...jeepneyRoutes].sort((a, b) => {
-          const distA = getClosestDistanceToRoute(a);
-          const distB = getClosestDistanceToRoute(b);
-          return distA - distB;
-        }).slice(0, Math.min(3, jeepneyRoutes.length));
-        
-        setSearchType('fallback');
-      } else {
-        searchMethod = 'random';
-        console.log('✅ Using Option 3: Random route selection (user location unavailable)');
-        
-        const shuffled = [...jeepneyRoutes].sort(() => Math.random() - 0.5);
-        routesToSuggest = shuffled.slice(0, Math.min(3, shuffled.length));
-        
-        setSearchType('fallback');
-      }
-    }
-
-    console.log(`📊 Search method: ${searchMethod}, Routes selected: ${routesToSuggest.length}`);
-    console.log(`🏷️ Search type: ${searchType || 'unknown'}`);
-
-    // NEW: Check if single route is sufficient
-    const singleRouteSufficient = isSingleRouteSufficient(routesToSuggest, 2); // 2km threshold
-
-    if (!singleRouteSufficient && matchingLandmark && matchingLandmark.coordinates) {
-      console.log('🚌 Single route insufficient! Looking for multi-leg journeys...');
-      
-      // Find multi-leg journeys if user location is available
-      if (userLocation) {
-        const multiLegOptions = findMultiLegJourneys(
-          userLocation,
-          matchingLandmark.coordinates,
-          jeepneyRoutes,
-          3 // Max 3 legs
-        );
-
-        if (multiLegOptions.length > 0) {
-          // Rank the journeys by optimization criteria
-          const rankedJourneys = rankMultiLegJourneys(multiLegOptions);
-          console.log(`✅ Found ${rankedJourneys.length} multi-leg journeys, best has ${rankedJourneys[0].transfers} transfer(s)`);
-          
-          setMultiLegJourneys(rankedJourneys);
-          
-          // Use best multi-leg journey as primary suggestion
-          if (rankedJourneys.length > 0) {
-            setSelectedMultiLegJourney(rankedJourneys[0]);
-            routesToSuggest = []; // Clear single route suggestions
-          }
-        } else {
-          console.log('⚠️ No multi-leg journeys found even with transfers');
-          setMultiLegJourneys([]);
-        }
-      } else {
-        console.log('⚠️ User location not available for multi-leg journey planning');
-        setMultiLegJourneys([]);
-      }
-    } else {
-      // Single route is sufficient, clear multi-leg options
-      setMultiLegJourneys([]);
-      setSelectedMultiLegJourney(null);
-    }
-
-    setSuggestedRoutes(routesToSuggest);
-    
-    // NEW: Transition to viewing suggestions phase after routes are found
-    if (routesToSuggest.length > 0) {
-      setTimeout(() => {
-        setSearchPhase('viewing-suggestions');
-        setShowOnlyDestination(false);
-        setShowOnlySuggestedRoutes(true);
-      }, 300); // Brief delay for animation
-    }
-    
-    // Auto-select the closest route
-    if (routesToSuggest.length > 0) {
-      const closestRoute = routesToSuggest[0];
-      console.log('📌 Closest route selected:', closestRoute.number, closestRoute);
-      setSelectedRoute(closestRoute);
-      
-      // Calculate bounds from the selected route's coordinates and zoom map
-      if (closestRoute.coordinates && Array.isArray(closestRoute.coordinates)) {
-        console.log('📍 Route coordinates exist, length:', closestRoute.coordinates.length, closestRoute.coordinates);
-        const bounds = calculateBounds(closestRoute.coordinates);
-        console.log('🔢 Calculated bounds:', bounds);
-        if (bounds) {
-          console.log('🎯 Setting zoom bounds for route:', closestRoute.number, bounds);
-          setZoomBounds(bounds);
-        } else {
-          console.warn('⚠️ Bounds calculation returned null');
-        }
-      } else {
-        console.warn('⚠️ No valid coordinates found on route:', closestRoute);
-      }
-    } else {
-      console.log('ℹ️ No routes suggested, clearing zoom bounds');
-      setZoomBounds(null);
-    }
-
-    // Collect all major stops from matching routes to highlight on map
-    const stopsToHighlight = [];
-    matchingRoutes.forEach(route => {
-      if (route.majorStops) {
-        route.majorStops.forEach(stop => {
-          const stopName = typeof stop === 'string' ? stop : stop.name;
-          stopsToHighlight.push(stopName);
-        });
-      }
-    });
-
-    // Also add stops from proximity-found routes
-    if (searchMethod === 'proximity-search') {
-      routesToSuggest.forEach(route => {
-        if (route.majorStops) {
-          route.majorStops.forEach(stop => {
-            const stopName = typeof stop === 'string' ? stop : stop.name;
-            if (!stopsToHighlight.includes(stopName)) {
-              stopsToHighlight.push(stopName);
-            }
-          });
-        }
-      });
-    }
-
-    // Add the landmark if found
-    if (matchingLandmark) {
-      stopsToHighlight.push(matchingLandmark.name);
-    }
-
-    console.log('🔆 Highlighted stops:', stopsToHighlight);
-    setHighlightedStops(stopsToHighlight);
-  };
-
-
+  // Route-finding logic moved into an async function
   const handleFindRoute = async () => {
-    if (!destination) return;
-
-    console.log('🔍 handleFindRoute called with:', destination);
-    
-    // NEW: Set search phase
-    setSearchPhase('searching');
-    setShowOnlyDestination(true);
-    setShowOnlySuggestedRoutes(false);
-
-    // Inline coordinate finding logic
+    // First, try to find in landmarks
     let coords = null;
     let foundInSystem = false;
-
-    // First, try to find in landmarks
     const landmark = landmarks.find(lm => 
       lm.name.toLowerCase() === destination.toLowerCase()
     );
@@ -662,391 +180,356 @@ const JeepneyMap = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       setSearchType('system');
     }
 
-    // Set destination coordinates if found
+    // Set destination coordinates if found, or fallback to a major stop or landmark
     if (coords) {
       console.log('📍 Setting selected destination coords:', coords);
       setSelectedDestinationCoords(coords);
     } else {
-      console.log('❌ No coordinates found for destination');
+      // Fallback: Try to find the closest major stop from any route
+      let fallbackCoords = null;
+      let fallbackName = null;
+      let minDist = Infinity;
+      for (const route of jeepneyRoutes) {
+        if (route.majorStops && Array.isArray(route.majorStops)) {
+          for (const stop of route.majorStops) {
+            let lat = stop.lat ?? (stop.coordinates ? stop.coordinates[0] : undefined);
+            let lng = stop.lng ?? (stop.coordinates ? stop.coordinates[1] : undefined);
+            if (lat !== undefined && lng !== undefined) {
+              const dist = userLocation ? calculateDistance(userLocation.lat, userLocation.lng, lat, lng) : 0;
+              if (dist < minDist) {
+                minDist = dist;
+                fallbackCoords = [lat, lng];
+                fallbackName = stop.name || stop;
+              }
+            }
+          }
+        }
+      }
+      if (fallbackCoords) {
+        console.log('⚠️ Fallback: Using closest major stop as destination coords:', fallbackCoords, fallbackName);
+        setSelectedDestinationCoords(fallbackCoords);
+      } else {
+        // Final fallback: use a landmark with coordinates
+        const fallbackLandmark = landmarks.find(lm => Array.isArray(lm.coordinates) && lm.coordinates.length === 2);
+        if (fallbackLandmark) {
+          console.log('⚠️ Fallback: Using landmark as destination coords:', fallbackLandmark.coordinates, fallbackLandmark.name);
+          setSelectedDestinationCoords(fallbackLandmark.coordinates);
+        } else {
+          console.log('❌ No coordinates found for destination, no fallback available');
+          setSelectedDestinationCoords(null);
+        }
+      }
     }
-
-    // Trigger route finding
-    triggerFindRoute(destination);
-    
-    // NEW: Transition to suggestions phase after a brief moment for smooth UX
-    setTimeout(() => {
-      setSearchPhase('viewing-suggestions');
-      setShowOnlyDestination(false);
-      setShowOnlySuggestedRoutes(true);
-    }, 800);
   };
 
+  // --- Effects for Firestore data, geolocation, and UI ---
+  useEffect(() => {
+    // Fetch jeepney routes from Firestore
+    const routesUnsub = onSnapshot(
+      query(collection(db, 'routes')),
+      (snapshot) => {
+        const routes = snapshot.docs.map(doc => normalizeDocData(doc));
+        setJeepneyRoutes(routes);
+      }
+    );
+
+    // Fetch landmarks from Firestore
+    const landmarksUnsub = onSnapshot(
+      query(collection(db, 'landmarks')),
+      (snapshot) => {
+        const lm = snapshot.docs.map(doc => normalizeDocData(doc));
+        setLandmarks(lm);
+      }
+    );
+
+    // Fetch announcements from Firestore
+    const announcementsUnsub = onSnapshot(
+      query(collection(db, 'announcements')),
+      (snapshot) => {
+        const anns = snapshot.docs.map(doc => normalizeDocData(doc));
+        setAnnouncements(anns);
+      }
+    );
+
+    return () => {
+      routesUnsub();
+      landmarksUnsub();
+      announcementsUnsub();
+    };
+  }, []);
+
+  // Compute nearby landmarks when userLocation or landmarks change
+  useEffect(() => {
+    if (!userLocation || !landmarks.length) {
+      setNearbyLandmarks([]);
+      return;
+    }
+    const maxDistanceKm = 5;
+    const nearby = landmarks
+      .map(lm => {
+        if (!lm.coordinates || lm.coordinates.length !== 2) return null;
+        const [lat, lng] = lm.coordinates;
+        const dist = calculateDistance(userLocation.lat, userLocation.lng, lat, lng);
+        return { ...lm, distance: dist };
+      })
+      .filter(lm => lm && lm.distance <= maxDistanceKm)
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 5);
+    setNearbyLandmarks(nearby);
+  }, [userLocation, landmarks]);
+
+  useEffect(() => {
+    if (userLocation) {
+      reverseGeocode(userLocation.lat, userLocation.lng).then(locationName => {
+        setUserLocationName(locationName);
+      });
+    } else {
+      setUserLocationName(null);
+    }
+  }, [userLocation]);
+
   return (
-    <div className="app">
-      {/* Navbar is rendered by App.js */}
-
-      <div className="main-container">
-        <div className="main-grid">
-          <div className="main-content">
-            <div className="card">
-              <h2 className="card-title">Welcome to JeepneyMap!</h2>
-              
-              {/* New Location and Destination Selectors */}
-              <div className="form-grid" style={{ marginBottom: '20px' }}>
-                <LocationSelector 
-                  landmarks={landmarks}
-                  onLocationSelect={(location) => {
-                    setSelectedLocation(location);
-                    setUserLocation({
-                      lat: location.coordinates[0],
-                      lng: location.coordinates[1]
-                    });
+    <React.Fragment>
+      <div className="app">
+        {/* Navbar is rendered by App.js */}
+        <div className="main-container">
+          <div className="main-grid">
+            <div className="main-content">
+              {/* Location and Destination Selectors */}
+              <div className="card">
+                <h2 className="card-title">Welcome to JeepneyMap!</h2>
+                <div className="form-grid" style={{ marginBottom: '20px' }}>
+                  <LocationSelector 
+                    landmarks={landmarks}
+                    onLocationSelect={(location) => {
+                      setUserLocation(location && Array.isArray(location.coordinates) && location.coordinates.length === 2
+                        ? { lat: location.coordinates[0], lng: location.coordinates[1] }
+                        : null);
+                    }}
+                    selectedLocation={userLocation}
+                  />
+                  <DestinationSelector 
+                    routes={jeepneyRoutes}
+                    landmarks={landmarks}
+                    onDestinationSelect={(destination) => {
+                      setDestination(destination && destination.name ? destination.name : "");
+                      setDestinationDescription(
+                        destination
+                          ? (destination.type === 'stop' ? destination.routeName : destination.category || "")
+                          : ""
+                      );
+                    }}
+                    selectedDestination={{ name: destination }}
+                  />
+                </div>
+                <button 
+                  onClick={() => {
+                    if (!userLocation || !destination) {
+                      alert('Please select both your location and destination');
+                      return;
+                    }
+                    handleFindRoute();
                   }}
-                  selectedLocation={selectedLocation}
-                />
-                <DestinationSelector 
-                  routes={jeepneyRoutes}
-                  landmarks={landmarks}
-                  onDestinationSelect={(destination) => {
-                    setSelectedDestinationFromSelector(destination);
-                    setDestination(destination.name);
-                    // No auto-trigger - user will click "Find Stops" button
-                  }}
-                  selectedDestination={selectedDestinationFromSelector}
-                />
+                  className="btn-primary"
+                  disabled={!userLocation || !destination}
+                >
+                  Find Stops
+                </button>
               </div>
-
-              <button 
-                onClick={() => {
-                  if (!selectedLocation || !selectedDestinationFromSelector) {
-                    alert('Please select both your location and destination');
-                    return;
-                  }
-                  // Trigger route finding based on location + destination
-                  setDestination(selectedDestinationFromSelector.name);
-                  triggerFindRoute(selectedDestinationFromSelector.name);
-                }} 
-                className="btn-primary"
-                disabled={!selectedLocation || !selectedDestinationFromSelector}
-              >
-                Find Stops
-              </button>
-            </div>
-
-            <div className="card">
-              <h2 className="card-title"><MapPinIcon /> Map View</h2>
-              {userLocationName && (
-                <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '12px', padding: '8px', backgroundColor: '#f3f4f6', borderRadius: '4px' }}>
-                  📍 <strong>Your location:</strong> {userLocationName}
+              {/* Multi-leg journey panel above the map */}
+              {multiLegJourneys && multiLegJourneys.length > 0 && (
+                <div className="multi-leg-journeys-panel">
+                  <h3>🚌 Multi-Leg Journey Options</h3>
+                  <ol>
+                    {multiLegJourneys.slice(0, 5).map((journey, idx) => (
+                      <li key={idx}>
+                        {journey.legs.map((leg, i) => (
+                          <span key={i}>
+                            <b>{leg.route.number}</b>{i < journey.legs.length - 1 ? ' → ' : ''}
+                          </span>
+                        ))}
+                        <span style={{color: '#666', fontSize: '0.9em'}}> (Transfers: {journey.transfers}, Distance: {journey.totalDistance.toFixed(2)}km)</span>
+                        {journey.walkToDestination && (
+                          <span style={{color: '#f59e42', marginLeft: '0.5em'}}>+ Walk {journey.walkToDestination.distanceKm.toFixed(2)}km to destination</span>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
                 </div>
               )}
-              <div className="map-wrapper">
-                <LeafletMap
-                  routes={jeepneyRoutes}
-                  selectedRoute={selectedRoute}
-                  userLocation={userLocation}
-                  landmarks={landmarks}
-                  highlightedStops={highlightedStops}
-                  suggestedRoutes={suggestedRoutes}
-                  destination={destination}
-                  selectedDestination={selectedDestinationCoords}
-                  showLandmarks={!selectedDestinationCoords}
-                  zoomBounds={zoomBounds}
-                  searchType={searchType}
-                  onRouteClick={(route) => { setSelectedRoute(route); setShowRouteDetails(true); }}
-                  onZoomChange={(zoom) => setCurrentZoom(zoom)}
-                  // NEW: Pass phase control props
-                  searchPhase={searchPhase}
-                  showOnlyDestination={showOnlyDestination}
-                  showOnlySuggestedRoutes={showOnlySuggestedRoutes}
-                />
-              </div>
-            </div>
-
-            {suggestedRoutes.length > 0 && (
-              <div className="card suggested-jeepneys">
-                <h2 className="card-title">Available Jeepneys to {destination}</h2>
-                
-                {/* Search type feedback message */}
-                {searchType === 'system' && (
-                  <div style={{
-                    padding: '0.75rem 1rem',
-                    marginBottom: '1rem',
-                    backgroundColor: '#d1fae5',
-                    borderLeft: '4px solid #10b981',
-                    borderRadius: '0.375rem',
-                    color: '#065f46',
-                    fontSize: '14px'
-                  }}>
-                    ✓ Found "{destination}" in the system - showing jeepneys that have this stop
-                  </div>
-                )}
-                
-                {searchType === 'geocoded' && (
-                  <div style={{
-                    padding: '0.75rem 1rem',
-                    marginBottom: '1rem',
-                    backgroundColor: '#fef3c7',
-                    borderLeft: '4px solid #f59e0b',
-                    borderRadius: '0.375rem',
-                    color: '#78350f',
-                    fontSize: '14px'
-                  }}>
-                    📍 "{destination}" was located using map search - showing jeepneys passing nearby
-                  </div>
-                )}
-                
-                {searchType === 'fallback' && (
-                  <div style={{
-                    padding: '0.75rem 1rem',
-                    marginBottom: '1rem',
-                    backgroundColor: '#e0e7ff',
-                    borderLeft: '4px solid #6366f1',
-                    borderRadius: '0.375rem',
-                    color: '#312e81',
-                    fontSize: '14px'
-                  }}>
-                    ℹ️ "{destination}" not found in system - showing jeepneys closest to you
-                  </div>
-                )}
-                
-                {multiLegJourneys.length > 0 && (
-                  <div>
-                    <div style={{
-                      padding: '0.75rem 1rem',
-                      marginBottom: '1rem',
-                      backgroundColor: '#fff7ed',
-                      borderLeft: '4px solid #f97316',
-                      borderRadius: '0.375rem',
-                      color: '#7c2d12',
-                      fontSize: '14px',
-                      fontWeight: 'bold'
-                    }}>
-                      🚌 Multi-Leg Journey Options (Transfer Required)
+              {/* Available Jeepneys section */}
+              {suggestedRoutes.length > 0 && (
+                <div className="card suggested-jeepneys">
+                  <h2 className="card-title">Available Jeepneys to {destination}</h2>
+                  {/* Search type feedback message */}
+                  {searchType === 'system' && (
+                    <div style={{ padding: '0.75rem 1rem', marginBottom: '1rem', backgroundColor: '#d1fae5', borderLeft: '4px solid #10b981', borderRadius: '0.375rem', color: '#065f46', fontSize: '14px' }}>
+                      ✓ Found "{destination}" in the system - showing jeepneys that have this stop
                     </div>
-
-                    <div className="multi-leg-journeys">
-                      {multiLegJourneys.map((journey, idx) => (
-                        <div
-                          key={idx}
-                          className="multi-leg-journey-item"
-                          onClick={() => {
-                            setSelectedMultiLegJourney(journey);
-                            setSearchPhase('viewing-route');
-                            setShowRouteDetails(true);
-                          }}
-                          style={{
-                            padding: '1rem',
-                            marginBottom: '0.75rem',
-                            backgroundColor: idx === 0 ? '#fef3c7' : '#fafaf9',
-                            border: idx === 0 ? '2px solid #f97316' : '1px solid #e5e7eb',
-                            borderRadius: '0.5rem',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s'
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                            <h4 style={{ margin: 0, fontSize: '1rem', fontWeight: 'bold' }}>
-                              {journey.legs.map((leg, i) => (
-                                <span key={i}>
-                                  {leg.route.number}
-                                  {i < journey.legs.length - 1 ? ' → ' : ''}
-                                </span>
-                              ))}
-                            </h4>
-                            {idx === 0 && <span style={{ backgroundColor: '#f97316', color: 'white', padding: '0.25rem 0.5rem', borderRadius: '0.25rem', fontSize: '0.75rem', fontWeight: 'bold' }}>BEST</span>}
-                          </div>
-                          
-                          <div style={{ fontSize: '0.875rem', color: '#666', marginBottom: '0.5rem' }}>
-                            <p style={{ margin: '0.25rem 0' }}>
-                              🔄 Transfers: <strong>{journey.transfers}</strong> {journey.transfers === 1 ? 'transfer' : 'transfers'}
-                            </p>
-                            <p style={{ margin: '0.25rem 0' }}>
-                              📏 Distance: <strong>{journey.totalDistance.toFixed(2)}km</strong>
-                            </p>
-                            <p style={{ margin: '0.25rem 0' }}>
-                              ⏱️ Estimated Time: <strong>{journey.estimatedTimeMinutes}min</strong>
-                            </p>
-                          </div>
-
-                          <div style={{ fontSize: '0.8rem', color: '#888', marginTop: '0.5rem' }}>
-                            Journey: {journey.legs.map((leg, i) => (
-                              <span key={i}>
-                                {leg.route.name}
-                                {i < journey.legs.length - 1 ? ` → Transfer at ${leg.alighting.name || 'stop'} → ` : ' → Destination'}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ))}
+                  )}
+                  {searchType === 'geocoded' && (
+                    <div style={{ padding: '0.75rem 1rem', marginBottom: '1rem', backgroundColor: '#fef3c7', borderLeft: '4px solid #f59e0b', borderRadius: '0.375rem', color: '#78350f', fontSize: '14px' }}>
+                      📍 "{destination}" was located using map search - showing jeepneys passing nearby
                     </div>
-                  </div>
-                )}
-                
-                <div className="suggested-routes">
-                  {suggestedRoutes.map((route) => (
-                    <div key={route.id}>
-                      <div 
-                        className="suggested-route-item"
-                        onClick={() => {
-                          setSelectedRoute(route);
-                          setExpandedRouteId(expandedRouteId === route.id ? null : route.id);
-                          // NEW: Transition to viewing route details
-                          setSearchPhase('viewing-route');
-                          setShowRouteDetails(true);
-                          setShowOnlySuggestedRoutes(true);
-                          
-                          // Auto-zoom to show entire route
-                          if (route.coordinates && Array.isArray(route.coordinates) && route.coordinates.length > 0) {
-                            const bounds = calculateBounds(route.coordinates);
-                            if (bounds) {
-                              console.log('🎯 Auto-zooming to route:', route.number, bounds);
-                              setZoomBounds(bounds);
-                            }
-                          }
-                        }}
-                      >
+                  )}
+                  {searchType === 'fallback' && (
+                    <div style={{ padding: '0.75rem 1rem', marginBottom: '1rem', backgroundColor: '#e0e7ff', borderLeft: '4px solid #6366f1', borderRadius: '0.375rem', color: '#312e81', fontSize: '14px' }}>
+                      ℹ️ "{destination}" not found in system - showing jeepneys closest to you
+                    </div>
+                  )}
+                  <div className="suggested-routes">
+                    {suggestedRoutes.map((route) => (
+                      <div key={route.id}>
                         <div 
-                          className="suggested-route-number"
-                          style={{ backgroundColor: route.color }}
+                          className="suggested-route-item"
+                          onClick={() => {
+                            setSelectedRoute(route);
+                            setExpandedRouteId(expandedRouteId === route.id ? null : route.id);
+                            setSearchPhase('viewing-route');
+                          }}
                         >
-                          {route.number}
+                          <div className="suggested-route-number" style={{ backgroundColor: route.color }}>{route.number}</div>
+                          <div className="suggested-route-info">
+                            <h4 className="suggested-route-name">{route.name}</h4>
+                            <p className="suggested-route-fare">Fare: {route.fare || '₱11.00 - ₱15.00'}</p>
+                            <p className="suggested-route-frequency">{route.frequency || 'Every 5-10 mins'}</p>
+                          </div>
+                          <div className="suggested-route-arrow">{expandedRouteId === route.id ? '▼' : '→'}</div>
                         </div>
-                        <div className="suggested-route-info">
-                          <h4 className="suggested-route-name">{route.name}</h4>
-                          <p className="suggested-route-fare">Fare: {route.fare || '₱11.00 - ₱15.00'}</p>
-                          <p className="suggested-route-frequency">
-                            {route.frequency || 'Every 5-10 mins'}
-                          </p>
-                        </div>
-                        <div className="suggested-route-arrow">{expandedRouteId === route.id ? '▼' : '→'}</div>
-                      </div>
-
-                      {expandedRouteId === route.id && (
-                        <div className="route-details-expanded">
-                          <div className="route-details">
-                            <div className="route-details-content">
-                              <div className="route-info">
-                                <h3 className="route-name">{route.name}</h3>
-                                <p className="route-distance">Complete Route Loop</p>
-
-                                <div className="route-stats">
-                                  <div>
-                                    <p className="stat-label">Fare:</p>
-                                    <p className="stat-value">{route.fare || '₱11.00 - ₱15.00'}</p>
+                        {expandedRouteId === route.id && (
+                          <div className="route-details-expanded">
+                            <div className="route-details">
+                              <div className="route-details-content">
+                                <div className="route-info">
+                                  <h3 className="route-name">{route.name}</h3>
+                                  <p className="route-distance">Complete Route Loop</p>
+                                  <div className="route-stats">
+                                    <div>
+                                      <p className="stat-label">Fare:</p>
+                                      <p className="stat-value">{route.fare || '₱11.00 - ₱15.00'}</p>
+                                    </div>
+                                    <div>
+                                      <p className="stat-label">Travel Time:</p>
+                                      <p className="stat-value">{route.travelTime || '30-45 mins'}</p>
+                                    </div>
+                                    <div>
+                                      <p className="stat-label">Next Jeepney:</p>
+                                      <p className="stat-value">~5 mins</p>
+                                    </div>
                                   </div>
                                   <div>
-                                    <p className="stat-label">Travel Time:</p>
-                                    <p className="stat-value">{route.travelTime || '30-45 mins'}</p>
+                                    <p className="route-desc-label">Route Description:</p>
+                                    <p className="route-desc-text">{route.description || 'This route is part of the Bacolod City LPTRP.'}</p>
                                   </div>
-                                  <div>
-                                    <p className="stat-label">Next Jeepney:</p>
-                                    <p className="stat-value">~5 mins</p>
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <p className="route-desc-label">Route Description:</p>
-                                  <p className="route-desc-text">
-                                    {route.description || 'This route is part of the Bacolod City LPTRP.'}
-                                  </p>
                                 </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="sidebar">
-            <div className="card">
-              <h2 className="card-title">Latest Announcements</h2>
-              
-              <div className="announcements">
-                {announcements.length > 0 ? (
-                  announcements
-                    .sort((a, b) => {
-                      // Important notices first
-                      if (a.isImportant && !b.isImportant) return -1;
-                      if (!a.isImportant && b.isImportant) return 1;
-                      return 0;
-                    })
-                    .slice(0, 3)
-                    .map(announcement => (
-                    <div key={announcement.id} className={`announcement-card ${announcement.isImportant ? 'important' : 'general'}`}>
-                      <h3 className="announcement-title">{announcement.title}</h3>
-                      <p className="announcement-desc">{announcement.description}</p>
-                      <div className="announcement-footer">
-                        <p className="announcement-date">Posted: {announcement.date}</p>
-                        {announcement.isImportant && (
-                          <span className="announcement-badge">Important Notice</span>
                         )}
                       </div>
-                    </div>
-                  ))
-                ) : (
-                  <p style={{ color: '#6b7280', textAlign: 'center', padding: '1rem' }}>No announcements yet</p>
-                )}
-              </div>
-
-              <button className="link-btn" onClick={() => onNavigate('announcements')}>
-                View All Announcements
-              </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Map below the multi-leg journey panel and available jeepneys */}
+              <LeafletMap
+                routes={jeepneyRoutes}
+                selectedRoute={selectedRoute}
+                userLocation={userLocation}
+                landmarks={landmarks}
+                highlightedStops={highlightedStops}
+                suggestedRoutes={suggestedRoutes}
+                destination={destination}
+                selectedDestination={selectedDestinationCoords}
+                destinationDescription={destinationDescription}
+                showLandmarks={!selectedDestinationCoords}
+                zoomBounds={zoomBounds}
+                searchType={searchType}
+                onRouteClick={(route) => { setSelectedRoute(route); }}
+                onZoomChange={(zoom) => setCurrentZoom(zoom)}
+                searchPhase={searchPhase}
+                showOnlyDestination={showOnlyDestination}
+                showOnlySuggestedRoutes={showOnlySuggestedRoutes}
+              />
             </div>
-
-            <div className="card">
-              <h2 className="card-title">Nearby Landmarks</h2>
-              
-              <div className="landmarks">
-                {nearbyLandmarks.length > 0 ? (
-                  nearbyLandmarks.map(landmark => (
-                    <div key={landmark.id} className="landmark-item">
-                      <div className="landmark-icon">
-                        <MapPinSmallIcon />
-                      </div>
-                      <div>
-                        <h3 className="landmark-name">{landmark.name}</h3>
-                        <p className="landmark-distance">{landmark.category} • {landmark.distance.toFixed(1)} km away</p>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p style={{ color: '#6b7280', textAlign: 'center', padding: '1rem' }}>No nearby landmarks within 5 km</p>
-                )}
+            {/* Sidebar restored as before */}
+            <div className="sidebar">
+              {/* Sidebar cards restored here */}
+              <div className="card">
+                <h2 className="card-title">Latest Announcements</h2>
+                <div className="announcements">
+                  {announcements && announcements.length > 0 ? (
+                    announcements
+                      .sort((a, b) => {
+                        if (a.isImportant && !b.isImportant) return -1;
+                        if (!a.isImportant && b.isImportant) return 1;
+                        return 0;
+                      })
+                      .slice(0, 3)
+                      .map(announcement => (
+                        <div key={announcement.id} className={`announcement-card ${announcement.isImportant ? 'important' : 'general'}`}>
+                          <h3 className="announcement-title">{announcement.title}</h3>
+                          <p className="announcement-desc">{announcement.description}</p>
+                          <div className="announcement-footer">
+                            <p className="announcement-date">Posted: {announcement.date}</p>
+                            {announcement.isImportant && (
+                              <span className="announcement-badge">Important Notice</span>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                  ) : (
+                    <p style={{ color: '#6b7280', textAlign: 'center', padding: '1rem' }}>No announcements yet</p>
+                  )}
+                </div>
+                <button className="link-btn" onClick={() => onNavigate('announcements')}>
+                  View All Announcements
+                </button>
               </div>
-
-              <button className="link-btn" onClick={() => onNavigate('landmarks')}>
-                View All Landmarks
-              </button>
-            </div>
-
-            <div className="card">
-              <h2 className="card-title">Help Us Improve</h2>
-              <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
-                Your feedback helps us make JeepneyMap better for everyone.
-              </p>
-              <button 
-                className="btn-primary"
-                onClick={() => setShowFeedbackForm(true)}
-              >
-                Share Your Feedback
-              </button>
+              <div className="card">
+                <h2 className="card-title">Nearby Landmarks</h2>
+                <div className="landmarks">
+                  {nearbyLandmarks && nearbyLandmarks.length > 0 ? (
+                    nearbyLandmarks.map(landmark => (
+                      <div key={landmark.id} className="landmark-item">
+                        <div className="landmark-icon">
+                          {/* <MapPinSmallIcon /> */}
+                        </div>
+                        <div>
+                          <h3 className="landmark-name">{landmark.name}</h3>
+                          <p className="landmark-distance">{landmark.category} • {landmark.distance.toFixed(1)} km away</p>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <p style={{ color: '#6b7280', textAlign: 'center', padding: '1rem' }}>No nearby landmarks within 5 km</p>
+                  )}
+                </div>
+                <button className="link-btn" onClick={() => onNavigate('landmarks')}>
+                  View All Landmarks
+                </button>
+              </div>
+              <div className="card">
+                <h2 className="card-title">Help Us Improve</h2>
+                <p style={{ color: '#6b7280', marginBottom: '1rem' }}>
+                  Your feedback helps us make JeepneyMap better for everyone.
+                </p>
+                <button 
+                  className="btn-primary"
+                  onClick={() => setShowFeedbackForm(true)}
+                >
+                  Share Your Feedback
+                </button>
+              </div>
             </div>
           </div>
         </div>
+        <FeedbackForm 
+          isOpen={showFeedbackForm} 
+          onClose={() => setShowFeedbackForm(false)} 
+        />
       </div>
-
-      <FeedbackForm 
-        isOpen={showFeedbackForm} 
-        onClose={() => setShowFeedbackForm(false)} 
-      />
-    </div>
+    </React.Fragment>
   );
-};
-
+}
 export default JeepneyMap;

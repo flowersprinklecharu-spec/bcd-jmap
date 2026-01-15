@@ -283,42 +283,54 @@ export function isSingleRouteSufficient(enhancedRoutes, distanceThresholdKm = 2)
 
 /**
  * Find transfer points between two routes
- * Routes must share at least one major stop AND be geographically close (1-2km)
+ * Prefer name+coordinate matches, but allow proximity-based transfers (within 50m) as fallback
  * @param {Object} route1 - First route object with majorStops array and coordinates
  * @param {Object} route2 - Second route object with majorStops array and coordinates
- * @param {number} maxDistanceKm - Maximum distance between stops to be considered transfer point (default 2km)
+ * @param {number} maxDistanceKm - Maximum distance between stops to be considered transfer point (default 0.05km = 50m)
  * @returns {Array} Transfer points: [{stop1, stop2, distanceKm, lat, lng}, ...]
  */
-export function findTransferPoints(route1, route2, maxDistanceKm = 2) {
+export function findTransferPoints(route1, route2, maxDistanceKm = 0.05) {
   const transferPoints = [];
 
   // Get major stops arrays
   const stops1 = route1.majorStops || [];
   const stops2 = route2.majorStops || [];
 
-  // Check for shared stops
   for (const stop1 of stops1) {
     for (const stop2 of stops2) {
-      // Check if stops are the same (by name or very close)
-      const stopNameMatch = stop1.name && stop2.name && 
-        stop1.name.toLowerCase() === stop2.name.toLowerCase();
-      
-      const distance = haversineDistance(
-        stop1.lat || stop1[0],
-        stop1.lng || stop1[1],
-        stop2.lat || stop2[0],
-        stop2.lng || stop2[1]
-      );
+      // Check if coordinates are close (within maxDistanceKm)
+      let distance = Infinity;
+      if (
+        (stop1.lat !== undefined && stop1.lng !== undefined && stop2.lat !== undefined && stop2.lng !== undefined)
+      ) {
+        distance = haversineDistance(
+          stop1.lat,
+          stop1.lng,
+          stop2.lat,
+          stop2.lng
+        );
+      } else if (
+        Array.isArray(stop1) && stop1.length === 2 &&
+        Array.isArray(stop2) && stop2.length === 2
+      ) {
+        distance = haversineDistance(
+          stop1[0], stop1[1], stop2[0], stop2[1]
+        );
+      }
 
-      // Include if same stop or very close (within maxDistanceKm)
-      if (stopNameMatch || distance <= maxDistanceKm) {
+      // Prefer name+coordinate match, but allow proximity as fallback
+      const stopNameMatch = stop1.name && stop2.name && 
+        stop1.name.trim().toLowerCase() === stop2.name.trim().toLowerCase();
+
+      if ((stopNameMatch && distance <= maxDistanceKm) || (!stopNameMatch && distance <= maxDistanceKm)) {
         transferPoints.push({
           stop1,
           stop2,
           distanceKm: distance,
           lat: stop1.lat || stop1[0],
           lng: stop1.lng || stop1[1],
-          stopName: stop1.name || stop2.name || 'Transfer Point'
+          stopName: stop1.name || stop2.name || 'Transfer Point',
+          proximityTransfer: !stopNameMatch && distance <= maxDistanceKm
         });
       }
     }
@@ -367,11 +379,12 @@ export function findConnectableRoutes(currentRoute, allRoutes, transferDistanceK
 
 /**
  * Build multi-leg journeys using BFS to find optimal route combinations
+ * If no transfer point is found, allow the closest major stop to the destination to be used as the final jeepney stop, and suggest walking from there to the destination.
  * @param {Object} userLocation - User's GPS coordinates {lat, lng}
  * @param {Object} destination - Destination coordinates {lat, lng}
  * @param {Array} allRoutes - All available routes with enhanced GPS data
  * @param {number} maxLegs - Maximum number of route segments allowed (default 3)
- * @returns {Array} Multi-leg journeys: [{legs: [{route, boarding, alighting}, ...], totalDistance, transfers}, ...]
+ * @returns {Array} Multi-leg journeys: [{legs: [{route, boarding, alighting}, ...], totalDistance, transfers, walkToDestination}, ...]
  */
 export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLegs = 3) {
   if (!userLocation || !destination || !Array.isArray(allRoutes) || allRoutes.length === 0) {
@@ -418,7 +431,8 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
         legs: completePath,
         totalDistance: totalDistance + distanceToDestination,
         transfers: Math.max(0, path.length - 1),
-        routeIds: completePath.map(l => l.route.id)
+        routeIds: completePath.map(l => l.route.id),
+        walkToDestination: null
       });
 
       continue; // Move to next queue item
@@ -460,6 +474,46 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
           transfers: transfers + 1
         });
       }
+    }
+  }
+
+  // If no journeys found, allow closest major stop to destination as final jeepney stop
+  if (journeys.length === 0) {
+    // Find all major stops from all routes
+    const allMajorStops = allRoutes.flatMap(route =>
+      (route.majorStops || []).map(stop => ({
+        ...stop,
+        route
+      }))
+    );
+    // Find the closest major stop to the destination
+    let minDist = Infinity;
+    let closestStop = null;
+    for (const stop of allMajorStops) {
+      if (stop.lat !== undefined && stop.lng !== undefined) {
+        const dist = haversineDistance(destination.lat, destination.lng, stop.lat, stop.lng);
+        if (dist < minDist) {
+          minDist = dist;
+          closestStop = stop;
+        }
+      }
+    }
+    if (closestStop && minDist < 2) { // Only suggest if within 2km
+      // Find a route that serves this stop
+      const route = closestStop.route;
+      journeys.push({
+        legs: [
+          { route, boarding: userLocation, alighting: { lat: closestStop.lat, lng: closestStop.lng, name: closestStop.name }, distanceToDestination: minDist }
+        ],
+        totalDistance: minDist,
+        transfers: 0,
+        routeIds: [route.id],
+        walkToDestination: {
+          from: { lat: closestStop.lat, lng: closestStop.lng, name: closestStop.name },
+          to: destination,
+          distanceKm: minDist
+        }
+      });
     }
   }
 
