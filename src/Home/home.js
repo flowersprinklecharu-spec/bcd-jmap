@@ -1,3 +1,4 @@
+// All logic is inside the main JeepneyMap below. Imports must be at the top.
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { collection, onSnapshot, query } from 'firebase/firestore';
 import { db, normalizeDocData } from '../firebase';
@@ -27,6 +28,8 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
   const [currentZoom, setCurrentZoom] = useState(15);
   const [showFeedbackForm, setShowFeedbackForm] = useState(false);
   const [multiLegJourneys, setMultiLegJourneys] = useState([]); // State for multi-leg journeys
+  const [directRoutes, setDirectRoutes] = useState([]); // State for direct (one-way) routes
+  const [hasDirectRoute, setHasDirectRoute] = useState(false); // Robust flag for direct route
   const [announcements, setAnnouncements] = useState([]);
   const [nearbyLandmarks, setNearbyLandmarks] = useState([]);
   // --- Add missing state for expanded route, search phase, etc. ---
@@ -184,6 +187,37 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
     if (coords) {
       console.log('📍 Setting selected destination coords:', coords);
       setSelectedDestinationCoords(coords);
+
+      // --- Direct route detection logic ---
+      // Only run if both userLocation and coords are available
+      if (userLocation && coords.length === 2) {
+        // Prepare destination as object for enhanceRoutesWithGPS
+        const destinationObj = { lat: coords[0], lng: coords[1] };
+        // Enhance all routes with GPS data
+        const enhancedRoutes = enhanceRoutesWithGPS(jeepneyRoutes, userLocation, destinationObj);
+        // Filter for direct routes (distance to destination <= 2km by default)
+        // AND that have the selected destination as a major stop
+        const direct = enhancedRoutes.filter(r => {
+          if (r.distanceToDestination > 2) return false;
+          if (!r.majorStops || !Array.isArray(r.majorStops)) return false;
+          return r.majorStops.some(stop => {
+            const stopName = typeof stop === 'string' ? stop : (stop?.name || '');
+            return stopName.toLowerCase() === destination.toLowerCase();
+          });
+        });
+        setDirectRoutes(direct);
+        setHasDirectRoute(direct.length > 0);
+        if (direct.length > 0) {
+          // Hide multi-leg journeys if direct route exists
+          setMultiLegJourneys([]);
+          setSuggestedRoutes(direct);
+          setSearchType('system');
+          return;
+        } else {
+          setDirectRoutes([]);
+          setHasDirectRoute(false);
+        }
+      }
     } else {
       // Fallback: Try to find the closest major stop from any route
       let fallbackCoords = null;
@@ -336,8 +370,8 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
                   Find Stops
                 </button>
               </div>
-              {/* Multi-leg journey panel above the map */}
-              {multiLegJourneys && multiLegJourneys.length > 0 && (
+              {/* Multi-leg journey panel above the map (only if no direct route) */}
+              {!hasDirectRoute && multiLegJourneys && multiLegJourneys.length > 0 && (
                 <div className="multi-leg-journeys-panel">
                   <h3>🚌 Multi-Leg Journey Options</h3>
                   <ol>
