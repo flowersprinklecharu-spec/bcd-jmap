@@ -447,36 +447,21 @@ const LeafletMap = (props) => {
   const bacolodboundsCenter = [10.6475, 123.0125]; // Center of Bacolod City
   const center = userLocation ? [userLocation.lat, userLocation.lng] : bacolodboundsCenter;
 
-  // Filtered routes for polylines: if hasDirectRoute, only show directRoutes; else, show all routes
-  const polylineRoutes = hasDirectRoute && directRoutes.length > 0 ? directRoutes : routes;
+  // Filtered routes for polylines: if hasDirectRoute, only show directRoutes; else, show selected multi-leg journey routes if available
+  let polylineRoutes = routes;
+  if (hasDirectRoute && directRoutes.length > 0) {
+    polylineRoutes = directRoutes;
+  } else if (props.multiLegJourneyRoutes && props.multiLegJourneyRoutes.length > 0) {
+    polylineRoutes = props.multiLegJourneyRoutes;
+  }
 
   // Cap zoom to 16 if showing direct route
   const mapZoom = hasDirectRoute ? 16 : 10;
 
   return (
     <>
-      {/* Always show multi-leg journey panel if any journeys exist */}
-      {allMultiLegJourneys && allMultiLegJourneys.length > 0 && !hasDirectRoute && (
-        <div className="multi-leg-journeys-panel" style={{margin: '1rem 0', padding: '1rem', background: '#fff7ed', border: '1px solid #f97316', borderRadius: '0.5rem'}}>
-          <h3 style={{color: '#f97316', marginBottom: '0.5rem'}}>🚌 Multi-Leg Journey Options</h3>
-          <ol style={{paddingLeft: '1.5rem'}}>
-            {allMultiLegJourneys.map((journey, idx) => (
-              <li key={idx} style={{marginBottom: '0.5rem'}}>
-                {journey.legs.map((leg, i) => (
-                  <span key={i}>
-                    <b>{leg.route.number}</b>{i < journey.legs.length - 1 ? ' → ' : ''}
-                  </span>
-                ))}
-                <span style={{color: '#666', fontSize: '0.9em'}}> (Transfers: {journey.transfers}, Distance: {journey.totalDistance.toFixed(2)}km)</span>
-                {journey.walkToDestination && (
-                  <span style={{color: '#f59e42', marginLeft: '0.5em'}}>+ Walk {journey.walkToDestination.distanceKm.toFixed(2)}km to destination</span>
-                )}
-              </li>
-            ))}
-          </ol>
-        </div>
-      )}
-      {renderDirectionsPanel(multiLegJourney, userLocation, selectedDestination)}
+      {/* Directions panel for selected multi-leg journey (from Home.js) */}
+      {props.selectedMultiLegJourney && renderDirectionsPanel(props.selectedMultiLegJourney, userLocation, selectedDestination)}
       <div className="leaflet-map" style={{ height: '100%', width: '100%', minHeight: '500px' }}>
         <MapContainer 
           center={center} 

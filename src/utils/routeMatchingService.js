@@ -394,7 +394,8 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
   const journeys = [];
   const visited = new Set(); // Track visited route combinations to avoid duplicates
 
-  // Queue: [{currentRoute, path: [{route, transferPoint}], distance, transfers}]
+
+  // Queue: [{currentRoute, path: [{route, boarding, alighting}], totalDistance, transfers}]
   const queue = [];
 
   // Start with all routes near user location
@@ -403,7 +404,11 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
   for (const route of startingRoutes) {
     queue.push({
       currentRoute: route,
-      path: [{ route, boarding: userLocation, transferDistance: 0 }],
+      path: [{
+        route,
+        boarding: { ...userLocation, name: userLocation.name || 'Your location' },
+        // alighting will be set when a transfer or destination is found
+      }],
       totalDistance: route.distanceFromUser || 0,
       transfers: 0
     });
@@ -422,19 +427,35 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
 
     // If this route reaches destination, save as valid journey
     if (distanceToDestination <= 2) { // 2km threshold
-      const completePath = [
-        ...path,
-        { route: currentRoute, alighting: destination, distanceToDestination }
-      ];
-
+      // Build legs as true segments: each with boarding, alighting, and route
+      const legs = [];
+      for (let i = 0; i < path.length; i++) {
+        const seg = { ...path[i] };
+        // Set alighting for all but last leg (if not already set)
+        if (!seg.alighting && i < path.length - 1 && path[i + 1].boarding) {
+          seg.alighting = path[i + 1].boarding;
+        }
+        legs.push(seg);
+      }
+      // Last leg: set alighting to destination
+      if (legs.length > 0) {
+        legs[legs.length - 1].alighting = { ...destination, name: destination.name || 'Your destination' };
+      }
+      // Fix: ensure all legs have both boarding and alighting, and filter out any zero-length legs
+      const filteredLegs = [];
+      for (let i = 0; i < legs.length; i++) {
+        const leg = legs[i];
+        if (leg.boarding && leg.alighting && leg.route) {
+          filteredLegs.push(leg);
+        }
+      }
       journeys.push({
-        legs: completePath,
+        legs: filteredLegs,
         totalDistance: totalDistance + distanceToDestination,
-        transfers: Math.max(0, path.length - 1),
-        routeIds: completePath.map(l => l.route.id),
+        transfers: Math.max(0, filteredLegs.length - 1),
+        routeIds: filteredLegs.map(l => l.route.id),
         walkToDestination: null
       });
-
       continue; // Move to next queue item
     }
 
@@ -451,16 +472,25 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
 
         // Use first (closest) transfer point
         const transferPoint = nextRoute.transferPoints[0];
+        // Set alighting for current leg and boarding for next leg
+        // Always close the previous leg and start a new one for the transfer
         const newPath = [
-          ...path,
+          ...path.slice(0, -1),
           {
-            route: currentRoute,
+            ...path[path.length - 1],
             alighting: {
               lat: transferPoint.lat,
               lng: transferPoint.lng,
               name: transferPoint.stopName
             },
-            distanceToTransfer: transferPoint.distanceKm
+          },
+          {
+            route: nextRoute,
+            boarding: {
+              lat: transferPoint.lat,
+              lng: transferPoint.lng,
+              name: transferPoint.stopName
+            }
           }
         ];
 

@@ -1,0 +1,93 @@
+.multi-leg-journey-card.selected {
+  border: 2.5px solid #6366f1;
+  box-shadow: 0 4px 16px #6366f133, 0 2px 8px #f59e4222;
+  background: #f3f6fd;
+}
+.multi-leg-journeys-panel {
+  background: #fff7ed;
+  border: 1.5px solid #f59e42;
+  border-radius: 12px;
+  padding: 1.5em;
+  margin-bottom: 1.5em;
+  box-shadow: 0 2px 12px #f59e4222;
+}
+.multi-leg-journeys-panel h3 {
+  color: #f59e42;
+  margin-bottom: 1em;
+  font-size: 1.25em;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+.multi-leg-journey-card {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px #f59e4222;
+  padding: 1em 1.2em;
+  border-left: 5px solid #f59e42;
+  position: relative;
+  margin-bottom: 1.2em;
+  transition: box-shadow 0.2s;
+}
+.multi-leg-journey-card:hover {
+  box-shadow: 0 4px 16px #6366f1cc, 0 2px 8px #f59e4222;
+  border: 2.5px solid #6366f1;
+  background: #f3f6fd;
+  cursor: pointer;
+  transition: box-shadow 0.2s, border 0.2s, background 0.2s;
+}
+.multi-leg-journey-card .option-label {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  font-weight: 600;
+  color: #6366f1;
+  font-size: 1.1em;
+  opacity: 0.7;
+}
+.multi-leg-journey-card .route-path {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-bottom: 0.5em;
+  flex-wrap: wrap;
+}
+.multi-leg-journey-card .route-path .route-name {
+  font-weight: 600;
+  color: #6366f1;
+  font-size: 1.05em;
+  display: flex;
+  align-items: center;
+}
+.multi-leg-journey-card .route-path .arrow {
+  color: #aaa;
+  font-size: 1.2em;
+  margin: 0 0.2em;
+}
+.multi-leg-journey-card .step-list {
+  margin-bottom: 0.5em;
+  font-size: 0.98em;
+  color: #444;
+}
+.multi-leg-journey-card .step-list .step-label {
+  color: #6366f1;
+  font-weight: 500;
+  margin-right: 0.3em;
+}
+.multi-leg-journey-card .transfer {
+  color: #f59e42;
+  margin-left: 0.3em;
+  font-weight: 500;
+}
+.multi-leg-journey-card .summary {
+  font-size: 0.95em;
+  color: #666;
+  margin-top: 0.5em;
+  display: flex;
+  align-items: center;
+  gap: 1.2em;
+}
+.multi-leg-journey-card .summary .walk {
+  color: #f59e42;
+  margin-left: 0.7em;
+}

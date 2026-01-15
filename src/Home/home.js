@@ -10,6 +10,7 @@ import LocationSelector from '../components/LocationSelector';
 import DestinationSelector from '../components/DestinationSelector';
 import '../components/location-selector.css';
 import '../components/destination-selector.css';
+import './multi-leg-journey.css';
 // Navbar moved to App.js (top-level)
 import LeafletMap from '../Map/LeafletMap';
 function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
@@ -234,6 +235,16 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
         } else {
           setDirectRoutes([]);
           setHasDirectRoute(false);
+          // Compute multi-leg journeys if no direct route is found
+          if (userLocation && coords.length === 2) {
+            const userObj = { lat: userLocation.lat, lng: userLocation.lng };
+            const destinationObj = { lat: coords[0], lng: coords[1] };
+            const journeys = rankMultiLegJourneys(
+              findMultiLegJourneys(userObj, destinationObj, jeepneyRoutes, 3)
+            );
+            setMultiLegJourneys(journeys);
+            setSelectedMultiLegJourney(journeys.length > 0 ? 0 : null);
+          }
         }
       }
     } else {
@@ -390,38 +401,56 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
               </div>
               {/* Multi-leg journey panel above the map (only if no direct route) */}
               {!hasDirectRoute && multiLegJourneys && multiLegJourneys.length > 0 && (
-                <div className="multi-leg-journeys-panel" style={{ background: '#fff7ed', border: '1px solid #f59e42', borderRadius: '10px', padding: '1.2em', marginBottom: '1.5em' }}>
-                  <h3 style={{ color: '#f59e42', marginBottom: '0.7em' }}>🚌 Multi-Leg Journey Options</h3>
-                  <ol style={{ paddingLeft: '1.2em', margin: 0 }}>
+                <div className="multi-leg-journeys-panel">
+                  <h3><span role="img" aria-label="bus">🚌</span> Multi-Leg Journey Options</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1.2em' }}>
                     {multiLegJourneys.slice(0, 5).map((journey, idx) => (
-                      <li key={idx} style={{ marginBottom: '1em', background: '#fff', borderRadius: '7px', boxShadow: '0 1px 4px #f59e4222', padding: '0.7em 1em' }}>
-                        <div style={{ fontWeight: 500, color: '#f59e42', marginBottom: '0.3em' }}>Option {idx + 1}</div>
-                        <div style={{ fontSize: '1.05em', marginBottom: '0.4em' }}>
+                      <div
+                        key={idx}
+                        className={`multi-leg-journey-card${selectedMultiLegJourney === idx ? ' selected' : ''}`}
+                        tabIndex={0}
+                        style={{ cursor: 'pointer', outline: selectedMultiLegJourney === idx ? '2.5px solid #6366f1' : 'none', boxShadow: selectedMultiLegJourney === idx ? '0 0 0 3px #6366f155' : undefined }}
+                        onClick={() => { setSelectedMultiLegJourney(idx); }}
+                        onKeyPress={e => { if (e.key === 'Enter' || e.key === ' ') setSelectedMultiLegJourney(idx); }}
+                        aria-label={`Select multi-leg journey option ${idx + 1}`}
+                      >
+                        <div className="option-label">Option {idx + 1}</div>
+                        <div className="route-path">
                           {journey.legs.map((leg, i) => (
-                            <span key={i}>
-                              <b style={{ color: '#6366f1' }}>{leg.route.name}</b>{i < journey.legs.length - 1 ? <span style={{ color: '#aaa' }}> → </span> : ''}
+                            <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.2em' }}>
+                              <span className="route-name"><span role="img" aria-label="jeepney" style={{ marginRight: 2 }}>🚐</span>{leg.route.name}</span>
+                              {i < journey.legs.length - 1 && <span className="arrow">→</span>}
                             </span>
                           ))}
                         </div>
-                        <ul style={{ margin: 0, paddingLeft: '1.1em', fontSize: '0.97em', color: '#444' }}>
-                          {journey.legs.map((leg, i) => (
-                            <li key={i} style={{ marginBottom: '0.2em' }}>
-                              Ride <b style={{ color: '#6366f1' }}>{leg.route.name}</b> from <b>{leg.boarding?.name || 'Boarding Point'}</b> to <b>{leg.alighting?.name || (i === journey.legs.length - 1 ? 'Your destination' : 'Transfer Point')}</b>.
-                              {i < journey.legs.length - 1 && (
-                                <span style={{ color: '#f59e42', marginLeft: '0.3em' }}>Transfer to next jeepney at <b>{leg.alighting?.name || 'Transfer Point'}</b>.</span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                        <div style={{ fontSize: '0.93em', color: '#666', marginTop: '0.5em' }}>
-                          Transfers: <b>{journey.transfers}</b> &nbsp;|&nbsp; Total Distance: <b>{journey.totalDistance.toFixed(2)} km</b>
+                        {/* Only show step-by-step directions for the selected journey */}
+                        {selectedMultiLegJourney === idx && (
+                          <div className="step-list">
+                            {journey.legs.map((leg, i) => (
+                              <div key={i} style={{ marginBottom: '0.2em', display: 'flex', alignItems: 'center', gap: '0.3em' }}>
+                                <span className="step-label">Step {i + 1}:</span>
+                                Ride <b className="route-name">{leg.route.name}</b> from <b>{leg.boarding?.name || 'Boarding Point'}</b> to <b>{leg.alighting?.name || (i === journey.legs.length - 1 ? 'Your destination' : 'Transfer Point')}</b>.
+                                {i < journey.legs.length - 1 && (
+                                  <span className="transfer">
+                                    <span role="img" aria-label="transfer">🔄</span> Transfer at <b>{leg.alighting?.name || 'Transfer Point'}</b>
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="summary">
+                          <span><span role="img" aria-label="transfer">🔄</span> Transfers: <b>{journey.transfers}</b></span>
+                          <span><span role="img" aria-label="distance">📏</span> Total Distance: <b>{journey.totalDistance.toFixed(2)} km</b></span>
                           {journey.walkToDestination && (
-                            <span style={{ color: '#f59e42', marginLeft: '0.7em' }}>+ Walk {journey.walkToDestination.distanceKm.toFixed(2)} km to destination</span>
+                            <span className="walk">
+                              <span role="img" aria-label="walk">🚶‍♂️</span> Walk {journey.walkToDestination.distanceKm.toFixed(2)} km to destination
+                            </span>
                           )}
                         </div>
-                      </li>
+                      </div>
                     ))}
-                  </ol>
+                  </div>
                 </div>
               )}
               {/* Available Jeepneys section: only show if hasDirectRoute is true */}
@@ -519,6 +548,8 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
                 showOnlySuggestedRoutes={showOnlySuggestedRoutes}
                 hasDirectRoute={hasDirectRoute}
                 directRoutes={directRoutes}
+                selectedMultiLegJourney={selectedMultiLegJourney !== null ? multiLegJourneys[selectedMultiLegJourney] : null}
+                multiLegJourneyRoutes={selectedMultiLegJourney !== null && multiLegJourneys[selectedMultiLegJourney] ? multiLegJourneys[selectedMultiLegJourney].legs.map(l => l.route) : []}
               />
             </div>
             {/* Sidebar restored as before */}
