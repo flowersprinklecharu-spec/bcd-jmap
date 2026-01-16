@@ -674,20 +674,22 @@ export function rankMultiLegJourneys(journeys) {
   const filteredJourneys = journeys.filter(journey => {
     if (!journey.legs || journey.legs.length < 2) return false;
     const leg2 = journey.legs[1];
-    if (!leg2.route || !leg2.route.coordinates) return false;
+    if (!leg2.route || !leg2.route.majorStops) return false;
     const destLat = leg2.alighting.lat;
     const destLng = leg2.alighting.lng;
-    const coords = leg2.route.coordinates || [];
-    let passesDestination = false;
-    for (const coord of coords) {
-      const lat = coord.lat || coord[0];
-      const lng = coord.lng || coord[1];
-      if (haversineDistance(lat, lng, destLat, destLng) <= 2) {
-        passesDestination = true;
-        break;
+    // Only allow if a major stop is within 0.3km (300m) of the destination
+    let hasNearbyStop = false;
+    for (const stop of leg2.route.majorStops) {
+      let lat = stop.lat ?? (stop.coordinates ? stop.coordinates[0] : undefined);
+      let lng = stop.lng ?? (stop.coordinates ? stop.coordinates[1] : undefined);
+      if (lat !== undefined && lng !== undefined) {
+        if (haversineDistance(lat, lng, destLat, destLng) <= 0.3) {
+          hasNearbyStop = true;
+          break;
+        }
       }
     }
-    if (!passesDestination) return false;
+    if (!hasNearbyStop) return false;
     // Prevent duplicate journeys (same route IDs and transfer point)
     const leg1 = journey.legs[0];
     if (journey.routeIds && journey.routeIds.length === 2) {
