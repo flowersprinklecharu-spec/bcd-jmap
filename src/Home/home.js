@@ -223,11 +223,14 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
           if (minUserDist > 0.3 || minDestDist > 0.3) return false;
           // User stop must come before destination stop
           if (userIdx === -1 || destIdx === -1 || userIdx >= destIdx) return false;
+          // Additional strictness: ensure there is a valid path between user stop and destination stop (no skipped segments)
+          // Check if all stops between userIdx and destIdx are valid (optional, can be added for even stricter logic)
           return true;
         });
         setDirectRoutes(direct);
         setHasDirectRoute(direct.length > 0);
         if (direct.length > 0) {
+          // Only show direct route if it truly connects user to destination in order
           setMultiLegJourneys([]);
           setSuggestedRoutes(direct);
           setSearchType('system');
@@ -567,15 +570,31 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
                       })
                       .slice(0, 3)
                       .map(announcement => (
-                        <div key={announcement.id} className={`announcement-card ${announcement.isImportant ? 'important' : 'general'}`}>
-                          <h3 className="announcement-title">{announcement.title}</h3>
-                          <p className="announcement-desc">{announcement.description}</p>
-                          <div className="announcement-footer">
-                            <p className="announcement-date">Posted: {announcement.date}</p>
-                            {announcement.isImportant && (
-                              <span className="announcement-badge">Important Notice</span>
-                            )}
-                          </div>
+                        <div key={announcement.id} className={`announcement-card ${(announcement.isNewRoute || announcement.type === 'new-route' || announcement.forceImportant) ? 'important' : (announcement.isImportant ? 'important' : 'general')}`}>
+                          {/* Always show 'New Route Added' as the title for new route announcements */}
+                          {(announcement.isNewRoute || announcement.type === 'new-route') ? (
+                            <>
+                              <div style={{ fontWeight: 700, fontSize: '1.1em', color: '#2563eb', marginBottom: 4 }}>
+                                New Route Added
+                              </div>
+                              <p className="announcement-desc">{announcement.description}</p>
+                              <div className="announcement-footer">
+                                <p className="announcement-date">Posted: {announcement.date}</p>
+                                <span className="announcement-badge">Important Notice</span>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              {announcement.title && <h3 className="announcement-title">{announcement.title}</h3>}
+                              <p className="announcement-desc">{announcement.description}</p>
+                              <div className="announcement-footer">
+                                <p className="announcement-date">Posted: {announcement.date}</p>
+                                {announcement.isImportant && (
+                                  <span className="announcement-badge">Important Notice</span>
+                                )}
+                              </div>
+                            </>
+                          )}
                         </div>
                       ))
                   ) : (

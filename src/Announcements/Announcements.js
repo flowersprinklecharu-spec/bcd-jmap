@@ -98,13 +98,24 @@ const Announcements = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => 
 
   const handleSaveAnnouncement = async () => {
     try {
+      // Auto-label as new route if title or description contains 'route'
+      let announcementToSave = { ...editingAnnouncement };
+      const isNewRoute = (
+        (announcementToSave.title && announcementToSave.title.toLowerCase().includes('route')) ||
+        (announcementToSave.description && announcementToSave.description.toLowerCase().includes('route'))
+      );
+      if (isNewRoute) {
+        announcementToSave.isNewRoute = true;
+        announcementToSave.isImportant = true;
+        announcementToSave.title = 'New Route Added';
+      }
       if (editMode === 'add') {
-        await saveAnnouncement(editingAnnouncement);
-        setAnnouncements([editingAnnouncement, ...announcements]);
+        await saveAnnouncement(announcementToSave);
+        setAnnouncements([announcementToSave, ...announcements]);
         alert('✅ Announcement posted successfully!');
       } else {
-        await saveAnnouncement(editingAnnouncement);
-        setAnnouncements(announcements.map(a => a.id === editingAnnouncement.id ? editingAnnouncement : a));
+        await saveAnnouncement(announcementToSave);
+        setAnnouncements(announcements.map(a => a.id === announcementToSave.id ? announcementToSave : a));
         alert('✅ Announcement updated successfully!');
       }
       setHasUnsavedChanges(false);
