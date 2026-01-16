@@ -410,32 +410,16 @@ const LeafletMap = (props) => {
     directRoutes = []
   } = props;
 
-  // Multi-leg journey state
-  let multiLegJourney = null;
+  // Use selectedMultiLegJourney from props for interactive map
+  const multiLegJourney = props.selectedMultiLegJourney || null;
   let transferMarkers = [];
-  let allMultiLegJourneys = [];
-  if (userLocation && selectedDestination && Array.isArray(selectedDestination) && routes.length > 0) {
-    const journeys = rankMultiLegJourneys(
-      findMultiLegJourneys(
-        { lat: userLocation.lat, lng: userLocation.lng },
-        { lat: selectedDestination[0], lng: selectedDestination[1] },
-        routes,
-        3 // max 3 legs for consistency with Home.js
-      )
-    );
-    allMultiLegJourneys = journeys;
-    if (journeys.length > 0) {
-      multiLegJourney = journeys[0];
-      transferMarkers = multiLegJourney.legs
-        .filter((leg, idx) => idx > 0 && leg.alighting && leg.alighting.name)
-        .map((leg, idx) => ({
-          pos: [leg.alighting.lat, leg.alighting.lng],
-          name: leg.alighting.name
-        }));
-    }
-    console.log('[LeafletMap] Multi-leg journeys found:', journeys.length, journeys);
-  } else {
-    console.log('[LeafletMap] Multi-leg journey NOT computed. userLocation:', userLocation, 'selectedDestination:', selectedDestination, 'routes:', routes.length);
+  if (multiLegJourney && multiLegJourney.legs) {
+    transferMarkers = multiLegJourney.legs
+      .filter((leg, idx) => idx > 0 && leg.alighting && leg.alighting.name)
+      .map((leg) => ({
+        pos: [leg.alighting.lat, leg.alighting.lng],
+        name: leg.alighting.name
+      }));
   }
 
   // Expanded bounds to include Bacolod, Binalbagan, and Isabela municipalities (wider scope)
@@ -455,8 +439,32 @@ const LeafletMap = (props) => {
     polylineRoutes = props.multiLegJourneyRoutes;
   }
 
-  // Cap zoom to 16 if showing direct route
-  const mapZoom = hasDirectRoute ? 16 : 10;
+  // Calculate bounds for selected multi-leg journey to avoid over-zooming
+  let mapZoom = hasDirectRoute ? 16 : 10;
+  let fitBounds = null;
+  if (multiLegJourney && multiLegJourney.legs) {
+    // Collect all coordinates: start, transfers, destination
+    const coords = [];
+    // Start (boarding of first leg)
+    if (multiLegJourney.legs[0]?.boarding) {
+      coords.push([multiLegJourney.legs[0].boarding.lat, multiLegJourney.legs[0].boarding.lng]);
+    }
+    // Transfers (alighting of each leg except last)
+    multiLegJourney.legs.forEach((leg, idx) => {
+      if (idx < multiLegJourney.legs.length - 1 && leg.alighting) {
+        coords.push([leg.alighting.lat, leg.alighting.lng]);
+      }
+    });
+    // Destination (alighting of last leg)
+    const lastLeg = multiLegJourney.legs[multiLegJourney.legs.length - 1];
+    if (lastLeg?.alighting) {
+      coords.push([lastLeg.alighting.lat, lastLeg.alighting.lng]);
+    }
+    if (coords.length > 1) {
+      fitBounds = L.latLngBounds(coords);
+      mapZoom = undefined; // Let fitBounds control zoom
+    }
+  }
 
   return (
     <>
@@ -465,7 +473,7 @@ const LeafletMap = (props) => {
       <div className="leaflet-map" style={{ height: '100%', width: '100%', minHeight: '500px' }}>
         <MapContainer 
           center={center} 
-          zoom={mapZoom}
+          zoom={mapZoom || 10}
           minZoom={8}
           maxZoom={16}
           maxBounds={bacolodbounds}
@@ -475,6 +483,8 @@ const LeafletMap = (props) => {
           style={{ height: '100%', width: '100%' }} 
           zoomControl={false}
         >
+          {/* Fit bounds to selected journey if available */}
+          {fitBounds && <BoundsHandler bounds={fitBounds} />}
           <ZoomControl position="topright" />
           <ZoomLevelTracker onZoomChange={onZoomChange} />
           {editingStopLocation && <LocationSelectionHandler editingStopLocation={editingStopLocation} onLocationSelect={onLocationSelect} />}
@@ -832,7 +842,7 @@ const LeafletMap = (props) => {
             </Marker>
           )}
 
-          {/* Render multi-leg journey if available */}
+          {/* Render multi-leg journey for selected option */}
           {multiLegJourney && multiLegJourney.legs.map((leg, idx) => {
             // Draw each leg as a Polyline
             const route = leg.route;
@@ -857,7 +867,12 @@ const LeafletMap = (props) => {
               </Polyline>
             );
           })}
-          {/* Render transfer markers */}
+          {/* Render start, transfer, and destination pins for selected journey */}
+          {multiLegJourney && multiLegJourney.legs.length > 0 && (
+            <Marker position={[multiLegJourney.legs[0].boarding.lat, multiLegJourney.legs[0].boarding.lng]} icon={createStopIcon('#10b981')}>
+              <Popup>Start: {multiLegJourney.legs[0].boarding.name}</Popup>
+            </Marker>
+          )}
           {transferMarkers.map((tm, idx) => (
             <Marker key={`transfer-${idx}`} position={tm.pos} icon={TRANSFER_ICON}>
               <Popup>
@@ -866,6 +881,11 @@ const LeafletMap = (props) => {
               </Popup>
             </Marker>
           ))}
+          {multiLegJourney && multiLegJourney.legs.length > 0 && (
+            <Marker position={[multiLegJourney.legs[multiLegJourney.legs.length - 1].alighting.lat, multiLegJourney.legs[multiLegJourney.legs.length - 1].alighting.lng]} icon={createLandmarkIcon('#ef4444')}>
+              <Popup>Destination: {multiLegJourney.legs[multiLegJourney.legs.length - 1].alighting.name}</Popup>
+            </Marker>
+          )}
         </MapContainer>
       </div>
     </>

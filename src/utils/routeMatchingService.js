@@ -393,42 +393,40 @@ export function findMultiLegJourneys(userLocation, destination, allRoutes, maxLe
 
   const journeys = [];
   const visited = new Set(); // Track visited route combinations to avoid duplicates
-
-
-  // Queue: [{currentRoute, path: [{route, boarding, alighting}], totalDistance, transfers}]
   const queue = [];
 
   // Find all routes near user and all routes near destination
-  const userNearbyRoutes = findNearbyRoutes(userLocation, allRoutes, 1); // 1km radius
-  const destNearbyRoutes = findNearbyRoutes(destination, allRoutes, 2); // 2km radius
+  const userNearbyRoutes = findNearbyRoutes(userLocation, allRoutes, 1.2); // Slightly relaxed radius
+  const destNearbyRoutes = findNearbyRoutes(destination, allRoutes, 2.5); // Slightly relaxed radius
 
   // For each user-nearby route, check for intersection with any destination-nearby route
   for (const routeA of userNearbyRoutes) {
-    // Skip if routeA is a direct route from user to destination
-    const destinationIsOnA = distanceToPolyline(destination.lat, destination.lng, routeA.coordinates || []) <= 2;
-    const userIsOnA = distanceToPolyline(userLocation.lat, userLocation.lng, routeA.coordinates || []) <= 2;
-    if (destinationIsOnA && userIsOnA) {
-      if (routeA.majorStops && Array.isArray(routeA.majorStops)) {
-        let userIdx = -1, destIdx = -1;
-        routeA.majorStops.forEach((stop, idx) => {
-          let lat = stop.lat ?? (stop.coordinates ? stop.coordinates[0] : undefined);
-          let lng = stop.lng ?? (stop.coordinates ? stop.coordinates[1] : undefined);
-          if (lat !== undefined && lng !== undefined) {
-            if (haversineDistance(userLocation.lat, userLocation.lng, lat, lng) < 0.3) userIdx = idx;
-            if (haversineDistance(destination.lat, destination.lng, lat, lng) < 0.3) destIdx = idx;
-          }
-        });
-        if (userIdx !== -1 && destIdx !== -1 && userIdx < destIdx) {
-          // This is a direct route, skip for multi-leg
-          continue;
-        }
-      }
-    }
+    // Ensure routeA passes through user location
+    const userIsOnA = distanceToPolyline(userLocation.lat, userLocation.lng, routeA.coordinates || []) <= 1.2;
+    if (!userIsOnA) continue;
+
     for (const routeB of destNearbyRoutes) {
       if (routeA.id === routeB.id) continue;
-      // Find intersection points between routeA and routeB (within 0.2km)
-      const transferPoints = findTransferPoints(routeA, routeB, 0.2);
+      // Ensure routeB passes through destination
+      const destinationIsOnB = distanceToPolyline(destination.lat, destination.lng, routeB.coordinates || []) <= 2.5;
+      if (!destinationIsOnB) continue;
+
+      // Find intersection points between routeA and routeB (relaxed to 0.3km)
+      const transferPoints = findTransferPoints(routeA, routeB, 0.3);
       for (const tp of transferPoints) {
+        // Strictly enforce: leg2 route must pass through destination
+        const coordsB = routeB.coordinates || [];
+        let passesDestination = false;
+        for (const coord of coordsB) {
+          const lat = coord.lat || coord[0];
+          const lng = coord.lng || coord[1];
+          if (haversineDistance(lat, lng, destination.lat, destination.lng) <= 2.5) {
+            passesDestination = true;
+            break;
+          }
+        }
+        if (!passesDestination) continue;
+
         // Build a two-leg journey: user -> transfer -> destination
         const leg1 = {
           route: routeA,
@@ -671,22 +669,35 @@ export function rankMultiLegJourneys(journeys) {
     return [];
   }
 
-  // Filter out journeys where none of the legs' routes pass near the destination (e.g., >2km from any point on any leg's route to the destination)
+  // Only display journeys where the second leg's route passes near the destination
+  const seenKeys = new Set();
   const filteredJourneys = journeys.filter(journey => {
-    if (!journey.legs || journey.legs.length === 0) return false;
-    const destLat = journey.legs[journey.legs.length-1].alighting.lat;
-    const destLng = journey.legs[journey.legs.length-1].alighting.lng;
-    for (const leg of journey.legs) {
-      const coords = leg.route.coordinates || [];
-      for (const coord of coords) {
-        const lat = coord.lat || coord[0];
-        const lng = coord.lng || coord[1];
-        if (haversineDistance(lat, lng, destLat, destLng) <= 2) {
-          return true;
-        }
+    if (!journey.legs || journey.legs.length < 2) return false;
+    const leg2 = journey.legs[1];
+    if (!leg2.route || !leg2.route.coordinates) return false;
+    const destLat = leg2.alighting.lat;
+    const destLng = leg2.alighting.lng;
+    const coords = leg2.route.coordinates || [];
+    let passesDestination = false;
+    for (const coord of coords) {
+      const lat = coord.lat || coord[0];
+      const lng = coord.lng || coord[1];
+      if (haversineDistance(lat, lng, destLat, destLng) <= 2) {
+        passesDestination = true;
+        break;
       }
     }
-    return false;
+    if (!passesDestination) return false;
+    // Prevent duplicate journeys (same route IDs and transfer point)
+    const leg1 = journey.legs[0];
+    if (journey.routeIds && journey.routeIds.length === 2) {
+      const key = journey.routeIds.join('-') + '-' + leg1.alighting.lat + '-' + leg1.alighting.lng;
+      if (seenKeys.has(key)) {
+        return false;
+      }
+      seenKeys.add(key);
+    }
+    return true;
   });
 
   // Score journeys: lower is better
