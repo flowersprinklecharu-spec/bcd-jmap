@@ -300,21 +300,22 @@ const Routes = ({ onNavigate, onRequestLogin, onAdminEditingChange }) => {
       
       if (modalMode === 'add') {
         await saveRoute(dataToSave);
-        
-        // Create announcement for new route
+
+        // Create important announcement for new route
         try {
           const newAnnouncement = {
             id: Date.now(),
-            title: editingRoute?.name || 'New Route',
-            description: '',
+            title: 'New Added Route',
+            description: `A new route${editingRoute?.name ? `: ${editingRoute.name}` : ''} has been added.`,
             date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }),
             category: 'New Route',
             type: 'route-update',
-            isImportant: false,
+            isImportant: true,
+            isNewRoute: true,
             linkedRouteId: editingRoute?.id
           };
           await saveAnnouncement(newAnnouncement);
-          console.log('✅ Announcement created for new route:', editingRoute?.name);
+          console.log('✅ Important announcement created for new route:', editingRoute?.name);
         } catch (announcementErr) {
           console.warn('⚠️ Failed to create announcement for route:', announcementErr);
           // Don't throw - the route was already saved successfully
