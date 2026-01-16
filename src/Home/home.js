@@ -427,17 +427,41 @@ function JeepneyMap({ onNavigate, onRequestLogin, onAdminEditingChange }) {
                           ))}
                         </div>
                         {/* Only show step-by-step directions for the selected journey */}
+                        <button
+                          className="toggle-details"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setSelectedMultiLegJourney(selectedMultiLegJourney === idx ? null : idx);
+                          }}
+                          aria-expanded={selectedMultiLegJourney === idx}
+                        >
+                          {selectedMultiLegJourney === idx ? 'Hide Details' : 'Show Details'}
+                        </button>
                         {selectedMultiLegJourney === idx && (
-                          <div className="step-list">
+                          <div className="step-list" style={{ display: 'flex', gap: '2em' }}>
                             {journey.legs.map((leg, i) => (
-                              <div key={i} style={{ marginBottom: '0.2em', display: 'flex', alignItems: 'center', gap: '0.3em' }}>
-                                <span className="step-label">Step {i + 1}:</span>
-                                Ride <b className="route-name">{leg.route.name}</b> from <b>{leg.boarding?.name || 'Boarding Point'}</b> to <b>{leg.alighting?.name || (i === journey.legs.length - 1 ? 'Your destination' : 'Transfer Point')}</b>.
-                                {i < journey.legs.length - 1 && (
-                                  <span className="transfer">
-                                    <span role="img" aria-label="transfer">🔄</span> Transfer at <b>{leg.alighting?.name || 'Transfer Point'}</b>
+                              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'stretch', background: '#f8f9ff', borderRadius: '8px', padding: '0.7em 1em', marginBottom: '0.2em', boxShadow: '0 1px 4px #6366f122', fontSize: '0.93em' }}>
+                                <div className="step-label" style={{ marginBottom: '0.4em', fontWeight: 600, color: '#6366f1', fontSize: '0.97em' }}>
+                                  <span className="step-icon" role="img" aria-label="step">{i + 1}️⃣</span> Step {i + 1}
+                                </div>
+                                <div style={{ marginBottom: '0.3em', display: 'flex', flexDirection: 'column', gap: '0.3em' }}>
+                                  <span style={{ fontWeight: 600, color: '#374151', display: 'inline-block', marginBottom: '0.2em', fontSize: '0.93em' }}>
+                                    Ride: <span className="route-name" style={{ color: '#006064' }}>{leg.route.name}</span>
                                   </span>
-                                )}
+                                  <span style={{ fontWeight: 500, color: '#006064', display: 'inline-block', marginBottom: '0.2em', fontSize: '0.93em' }}>
+                                    From: <span style={{ fontWeight: 600 }}>{leg.boarding?.name || 'Current Location'}</span>
+                                  </span>
+                                  {i < journey.legs.length - 1 && (
+                                    <span className="transfer" style={{ fontWeight: 500, color: '#f59e42', display: 'inline-block', marginBottom: '0.2em', fontSize: '0.93em' }}>
+                                      Transfer Point: <span style={{ fontWeight: 600 }}>{leg.alighting?.name || 'Transfer Point'}</span>
+                                    </span>
+                                  )}
+                                  {i === journey.legs.length - 1 && (
+                                    <span style={{ fontWeight: 500, color: '#006064', display: 'inline-block', marginBottom: '0.2em', fontSize: '0.93em' }}>
+                                      To: <span style={{ fontWeight: 600 }}>{leg.alighting?.name || 'Destination'}</span>
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             ))}
                           </div>
